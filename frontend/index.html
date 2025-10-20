@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>EchoNext - Digital Twin Voice System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎙️ EchoNext</h1>
+    </header>
+
+    <!-- Language Selection Phase -->
+    <div id="language-phase" class="phase">
+      <div class="card">
+        <h2 data-lang-ja="言語を選択 / Select Language" data-lang-en="Select Language / 言語を選択">言語を選択 / Select Language</h2>
+        <p class="instruction" data-lang-ja="使用する言語を選んでください" data-lang-en="Please select your language">使用する言語を選んでください</p>
+
+        <div class="language-buttons">
+          <button id="select-japanese" class="btn btn-primary language-btn">
+            🇯🇵 日本語
+          </button>
+          <button id="select-english" class="btn btn-primary language-btn">
+            🇺🇸 English
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Setup Phase -->
+    <div id="setup-phase" class="phase" style="display: none;">
+      <div class="card">
+        <h2 data-lang-ja="セットアップ" data-lang-en="Setup">セットアップ</h2>
+        <p class="instruction" data-lang-ja="まずはあなたの声を登録します。<br>録音開始とともに10秒以上自己紹介をしてください。" data-lang-en="First, let's register your voice.<br>Please introduce yourself for at least 10 seconds after starting the recording.">
+          まずはあなたの声を登録します。<br>
+          録音開始とともに10秒以上自己紹介をしてください。
+        </p>
+
+        <button id="start-recording" class="btn btn-primary" data-lang-ja="🎤 録音開始" data-lang-en="🎤 Start Recording">
+          🎤 録音開始
+        </button>
+
+        <div id="recording-status" class="status" style="display: none;">
+          <span class="pulse"></span>
+          <span data-lang-ja="録音中... " data-lang-en="Recording... ">録音中... </span><span id="recording-time">0</span><span data-lang-ja="秒" data-lang-en="s">秒</span>
+          <div id="countdown-container" style="display: none; margin-top: 10px;">
+            <span style="font-size: 14px; color: #ff9800;" data-lang-ja="⏱️ 推奨: あと" data-lang-en="⏱️ Recommended: ">⏱️ 推奨: あと</span><span id="countdown-time">10</span><span data-lang-ja="秒" data-lang-en="s more">秒</span>
+          </div>
+        </div>
+
+        <button id="stop-recording" class="btn btn-danger" style="display: none;" data-lang-ja="⏹ 録音停止" data-lang-en="⏹ Stop Recording">
+          ⏹ 録音停止
+        </button>
+
+        <div id="processing-status" class="status" style="display: none;">
+          <span class="spinner"></span>
+          <span data-lang-ja="音声データを処理中..." data-lang-en="Processing audio data...">音声データを処理中...</span>
+        </div>
+
+        <div id="transcript-display" class="transcript-box" style="display: none;">
+          <h3 data-lang-ja="認識されたテキスト:" data-lang-en="Recognized Text:">認識されたテキスト:</h3>
+          <p id="transcript-text"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Phase -->
+    <div id="main-phase" class="phase" style="display: none;">
+      <div class="controls">
+        <button id="toggle-system" class="btn btn-success" data-lang-ja="▶ システム開始" data-lang-en="▶ Start System">
+          ▶ システム開始
+        </button>
+
+        <button id="reset-system" class="btn btn-secondary" data-lang-ja="🔄 リセット" data-lang-en="🔄 Reset">
+          🔄 リセット
+        </button>
+      </div>
+
+      <div class="card">
+        <h2 data-lang-ja="リアルタイム文字起こし" data-lang-en="Live Transcription">リアルタイム文字起こし</h2>
+        <div id="live-transcript" class="transcript-box">
+          <p id="live-text" class="live-text" data-lang-ja="話し始めると、ここに文字起こしが表示されます..." data-lang-en="Start speaking and the transcription will appear here...">話し始めると、ここに文字起こしが表示されます...</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 data-lang-ja="予測履歴（直近3件）" data-lang-en="Prediction History (Last 3)">予測履歴（直近3件）</h2>
+        <div id="prediction-history" class="prediction-history">
+          <div class="prediction-item">
+            <span class="prediction-timestamp">--:--:--</span>
+            <div class="prediction-content">
+              <span class="prediction-input">-</span>
+              <span class="prediction-arrow">→</span>
+              <span class="prediction-word">-</span>
+            </div>
+          </div>
+          <div class="prediction-item">
+            <span class="prediction-timestamp">--:--:--</span>
+            <div class="prediction-content">
+              <span class="prediction-input">-</span>
+              <span class="prediction-arrow">→</span>
+              <span class="prediction-word">-</span>
+            </div>
+          </div>
+          <div class="prediction-item">
+            <span class="prediction-timestamp">--:--:--</span>
+            <div class="prediction-content">
+              <span class="prediction-input">-</span>
+              <span class="prediction-arrow">→</span>
+              <span class="prediction-word">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span id="system-status" class="status-indicator" data-lang-ja="⚪ 停止中" data-lang-en="⚪ Stopped">⚪ 停止中</span>
+        <span id="connection-status" data-lang-ja="🔌 接続中..." data-lang-en="🔌 Connecting...">🔌 接続中...</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20251014001"></script>
+</body>
+</html>
