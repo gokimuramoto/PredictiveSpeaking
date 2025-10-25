@@ -32,6 +32,75 @@
       </div>
     </div>
 
+    <!-- Knowledge Model Selection Phase -->
+    <div id="ngram-phase" class="phase" style="display: none;">
+      <div class="card">
+        <h2 data-lang-ja="知識モデル選択" data-lang-en="Knowledge Model Selection">知識モデル選択</h2>
+        <p class="instruction" data-lang-ja="RAG知識ベースを使用するか、スキップしてLLMのみで予測を行います" data-lang-en="Use RAG knowledge base or skip to use LLM-only prediction">
+          RAG知識ベースを使用するか、スキップしてLLMのみで予測を行います
+        </p>
+
+        <div class="ngram-options">
+          <div class="option-group">
+            <h3 data-lang-ja="RAG知識ベース（推奨）" data-lang-en="RAG Knowledge Base (Recommended)">RAG知識ベース（推奨）</h3>
+            <p class="small-text" data-lang-ja="文脈を理解した高精度な予測" data-lang-en="High-accuracy prediction with context understanding">
+              文脈を理解した高精度な予測
+            </p>
+            <select id="rag-model-select" class="model-select">
+              <option value="" data-lang-ja="読み込み中..." data-lang-en="Loading...">読み込み中...</option>
+            </select>
+            <button id="load-rag-btn" class="btn btn-primary" disabled data-lang-ja="RAGを読み込む" data-lang-en="Load RAG">
+              RAGを読み込む
+            </button>
+          </div>
+
+          <div class="option-divider" data-lang-ja="または" data-lang-en="OR">または</div>
+
+          <div class="option-group">
+            <h3 data-lang-ja="新しいRAG知識ベースを作成（推奨）" data-lang-en="Create New RAG Knowledge Base (Recommended)">新しいRAG知識ベースを作成（推奨）</h3>
+            <p class="small-text" data-lang-ja="知識データからベクトルDB構築（対応形式: .txt, .pdf, .docx, .tex）※エンベディングAPIを使用するため時間がかかります" data-lang-en="Build vector DB from knowledge data (Supported: .txt, .pdf, .docx, .tex) *Takes time as it uses embedding API">
+              知識データからベクトルDB構築（対応形式: .txt, .pdf, .docx, .tex）※エンベディングAPIを使用するため時間がかかります
+            </p>
+            <div class="model-creation-form">
+              <select id="rag-knowledge-folder-select" class="model-select">
+                <option value="" data-lang-ja="フォルダを読み込み中..." data-lang-en="Loading folders...">フォルダを読み込み中...</option>
+              </select>
+              <label class="small-text" data-lang-ja="知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります" data-lang-en="Knowledge folder (in knowledge-data, non-recursive) *Folder name will be used as model name">知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります</label>
+              <select id="rag-model-language" class="model-select">
+                <option value="ja" data-lang-ja="日本語" data-lang-en="Japanese">日本語</option>
+                <option value="en" data-lang-ja="英語" data-lang-en="English">英語</option>
+              </select>
+              <label class="small-text" data-lang-ja="知識データの主要言語（テキスト分割に使用）" data-lang-en="Primary language of knowledge data (used for text segmentation)">知識データの主要言語（テキスト分割に使用）</label>
+              <button id="create-rag-btn" class="btn btn-primary" data-lang-ja="RAG知識ベースを作成" data-lang-en="Create RAG Knowledge Base">
+                RAG知識ベースを作成
+              </button>
+            </div>
+            <div id="rag-creation-status" class="status" style="display: none;">
+              <span class="spinner"></span>
+              <span id="rag-creation-status-text" data-lang-ja="知識ベースを構築中..." data-lang-en="Building knowledge base...">知識ベースを構築中...</span>
+            </div>
+          </div>
+
+          <div class="option-divider" data-lang-ja="または" data-lang-en="OR">または</div>
+
+          <div class="option-group">
+            <h3 data-lang-ja="モデルをスキップ" data-lang-en="Skip Model">モデルをスキップ</h3>
+            <p class="small-text" data-lang-ja="LLMのみで予測を行います" data-lang-en="Use LLM-only prediction">
+              LLMのみで予測を行います
+            </p>
+            <button id="skip-model-btn" class="btn btn-secondary" data-lang-ja="スキップして次へ" data-lang-en="Skip to Next">
+              スキップして次へ
+            </button>
+          </div>
+        </div>
+
+        <div id="model-info" class="model-info" style="display: none;">
+          <h4 data-lang-ja="モデル情報" data-lang-en="Model Info">モデル情報</h4>
+          <div id="model-details"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Setup Phase -->
     <div id="setup-phase" class="phase" style="display: none;">
       <div class="card">

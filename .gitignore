@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editor directories
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Backup directories (created during development)
+echonext-backup-*/
+
+# Knowledge data (user-specific files, tracked by knowledge-data/.gitignore)
+# knowledge-data directory itself is tracked via .gitkeep
+
+# Generated RAG knowledge bases (tracked by rag-knowledge/.gitignore)
+# rag-knowledge directory itself is tracked via .gitkeep

@@ -291,3 +291,130 @@ header p {
   font-size: 1.3rem;
   padding: 20px 40px;
 }
+
+/* N-gram Model Selection Styles */
+.ngram-options {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  margin-top: 20px;
+}
+
+.option-group {
+  background: #f7fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.option-group h3 {
+  color: #2d3748;
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+}
+
+.model-select {
+  width: 100%;
+  padding: 12px 15px;
+  font-size: 1rem;
+  border: 2px solid #cbd5e0;
+  border-radius: 8px;
+  background: white;
+  margin-bottom: 15px;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+}
+
+.model-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.model-select option {
+  padding: 10px;
+}
+
+.option-divider {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #718096;
+  position: relative;
+  padding: 10px 0;
+}
+
+.option-divider::before,
+.option-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 2px;
+  background: #e2e8f0;
+}
+
+.option-divider::before {
+  left: 0;
+}
+
+.option-divider::after {
+  right: 0;
+}
+
+.small-text {
+  font-size: 0.95rem;
+  color: #718096;
+  margin-bottom: 15px;
+}
+
+.model-info {
+  background: #edf2f7;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.model-info h4 {
+  color: #2d3748;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+.model-info p {
+  margin: 5px 0;
+  color: #4a5568;
+  font-size: 0.95rem;
+}
+
+.model-info strong {
+  color: #2d3748;
+}
+
+.model-creation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.text-input {
+  width: 100%;
+  padding: 12px 15px;
+  font-size: 1rem;
+  border: 2px solid #cbd5e0;
+  border-radius: 8px;
+  background: white;
+  transition: border-color 0.3s ease;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.model-creation-form label {
+  font-size: 0.85rem;
+  color: #718096;
+  margin-top: -5px;
+  margin-bottom: 5px;
+}

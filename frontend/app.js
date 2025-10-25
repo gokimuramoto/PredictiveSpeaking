@@ -38,6 +38,21 @@ class EchoNextApp {
     this.selectJapaneseBtn = document.getElementById('select-japanese');
     this.selectEnglishBtn = document.getElementById('select-english');
 
+    // Model selection phase elements
+    this.ngramPhase = document.getElementById('ngram-phase');
+    this.skipModelBtn = document.getElementById('skip-model-btn');
+    this.modelInfo = document.getElementById('model-info');
+    this.modelDetails = document.getElementById('model-details');
+
+    // RAG model elements
+    this.ragModelSelect = document.getElementById('rag-model-select');
+    this.loadRagBtn = document.getElementById('load-rag-btn');
+    this.ragKnowledgeFolderSelect = document.getElementById('rag-knowledge-folder-select');
+    this.ragModelLanguageSelect = document.getElementById('rag-model-language');
+    this.createRagBtn = document.getElementById('create-rag-btn');
+    this.ragCreationStatus = document.getElementById('rag-creation-status');
+    this.ragCreationStatusText = document.getElementById('rag-creation-status-text');
+
     // Setup phase elements
     this.setupPhase = document.getElementById('setup-phase');
     this.mainPhase = document.getElementById('main-phase');
@@ -77,14 +92,15 @@ class EchoNextApp {
     // Update UI language
     this.updateUILanguage(lang);
 
-    // Hide language selection, show setup phase
+    // Hide language selection, show N-gram model selection phase
     this.languagePhase.style.display = 'none';
-    this.setupPhase.style.display = 'block';
+    this.ngramPhase.style.display = 'block';
 
     // Initialize speech recognition and WebSocket with the selected language
     this.initializeSpeechRecognition();
     this.connectWebSocket();
     this.setupEventListeners();
+    this.setupNgramPhase();
   }
 
   updateUILanguage(lang) {
@@ -93,14 +109,255 @@ class EchoNextApp {
     elements.forEach(element => {
       const text = element.getAttribute(`data-lang-${lang}`);
       if (text) {
-        if (element.tagName === 'BUTTON' || element.tagName === 'SPAN' || element.tagName === 'P' || element.tagName === 'H2' || element.tagName === 'H3') {
+        if (element.tagName === 'BUTTON' || element.tagName === 'SPAN' || element.tagName === 'P' || element.tagName === 'H2' || element.tagName === 'H3' || element.tagName === 'DIV' || element.tagName === 'LABEL') {
           element.innerHTML = text;
+        } else if (element.tagName === 'OPTION') {
+          element.textContent = text;
         }
       }
     });
 
     // Update HTML lang attribute
     document.documentElement.lang = lang;
+  }
+
+  async setupNgramPhase() {
+    // Setup event listeners for RAG
+    this.loadRagBtn.addEventListener('click', () => this.loadSelectedRagModel());
+    this.createRagBtn.addEventListener('click', () => this.createNewRagModel());
+    this.skipModelBtn.addEventListener('click', () => this.skipModelSelection());
+
+    // Load available models
+    await this.loadAvailableRagModels();
+    await this.loadKnowledgeFolders();
+
+    // Enable/disable load button based on selection
+    this.ragModelSelect.addEventListener('change', () => {
+      this.loadRagBtn.disabled = !this.ragModelSelect.value;
+    });
+  }
+
+  skipModelSelection() {
+    console.log('[Model] Skipping model selection, using LLM-only prediction');
+    this.proceedToSetup();
+  }
+
+  async loadAvailableRagModels() {
+    try {
+      const response = await fetch('http://localhost:3000/api/rag-knowledge');
+      const data = await response.json();
+
+      // Clear existing options
+      this.ragModelSelect.innerHTML = '';
+
+      if (data.models && data.models.length > 0) {
+        // Add placeholder option
+        const placeholderText = this.language === 'ja' ? 'RAGモデルを選択してください' : 'Select a RAG model';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = placeholderText;
+        this.ragModelSelect.appendChild(placeholder);
+
+        // Add model options
+        data.models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.filename;
+          option.textContent = `${model.name} (${model.language}, ${model.totalChunks} chunks, ${model.sizeKB} KB)`;
+          this.ragModelSelect.appendChild(option);
+        });
+
+        console.log(`[RAG] Loaded ${data.models.length} available models`);
+      } else {
+        // No models available
+        const noModelsText = this.language === 'ja' ? '利用可能なRAGモデルがありません' : 'No RAG models available';
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = noModelsText;
+        this.ragModelSelect.appendChild(option);
+        console.log('[RAG] No models available');
+      }
+    } catch (error) {
+      console.error('[RAG] Error loading models:', error);
+      const errorText = this.language === 'ja' ? 'RAGモデル読み込みエラー' : 'Error loading RAG models';
+      this.ragModelSelect.innerHTML = `<option value="">${errorText}</option>`;
+    }
+  }
+
+  async loadSelectedRagModel() {
+    const filename = this.ragModelSelect.value;
+    if (!filename) return;
+
+    try {
+      this.loadRagBtn.disabled = true;
+      this.loadRagBtn.textContent = this.language === 'ja' ? '読み込み中...' : 'Loading...';
+
+      const response = await fetch('http://localhost:3000/api/rag-knowledge/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('[RAG] Knowledge base loaded:', data.model);
+
+        // Show model info
+        this.displayRagModelInfo(data.model);
+
+        // Wait 1 second, then proceed to setup phase
+        setTimeout(() => {
+          this.proceedToSetup();
+        }, 1000);
+      } else {
+        throw new Error(data.error || 'Failed to load RAG model');
+      }
+    } catch (error) {
+      console.error('[RAG] Error loading model:', error);
+      const errorMsg = this.language === 'ja'
+        ? `RAGモデルの読み込みに失敗しました: ${error.message}`
+        : `Failed to load RAG model: ${error.message}`;
+      alert(errorMsg);
+      this.loadRagBtn.disabled = false;
+      const loadText = this.language === 'ja' ? 'RAGを読み込む' : 'Load RAG';
+      this.loadRagBtn.textContent = loadText;
+    }
+  }
+
+  displayRagModelInfo(model) {
+    const infoHTML = this.language === 'ja'
+      ? `
+        <p><strong>RAGモデル名:</strong> ${model.modelName}</p>
+        <p><strong>言語:</strong> ${model.language}</p>
+        <p><strong>総チャンク数:</strong> ${model.totalChunks.toLocaleString()}</p>
+        <p><strong>平均チャンク長:</strong> ${Math.round(model.avgChunkLength)} 文字</p>
+      `
+      : `
+        <p><strong>RAG Model Name:</strong> ${model.modelName}</p>
+        <p><strong>Language:</strong> ${model.language}</p>
+        <p><strong>Total Chunks:</strong> ${model.totalChunks.toLocaleString()}</p>
+        <p><strong>Avg Chunk Length:</strong> ${Math.round(model.avgChunkLength)} chars</p>
+      `;
+
+    this.modelDetails.innerHTML = infoHTML;
+    this.modelInfo.style.display = 'block';
+  }
+
+  async loadKnowledgeFolders() {
+    try {
+      const response = await fetch('http://localhost:3000/api/knowledge-folders');
+      const data = await response.json();
+
+      // Clear existing options
+      this.ragKnowledgeFolderSelect.innerHTML = '';
+
+      if (data.folders && data.folders.length > 0) {
+        // Add placeholder option
+        const placeholderText = this.language === 'ja' ? 'フォルダを選択してください' : 'Select a folder';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = placeholderText;
+        this.ragKnowledgeFolderSelect.appendChild(placeholder);
+
+        // Add folder options
+        data.folders.forEach(folder => {
+          const option = document.createElement('option');
+          option.value = folder.path;
+          option.textContent = folder.name;
+          this.ragKnowledgeFolderSelect.appendChild(option);
+        });
+
+        console.log(`[RAG] Loaded ${data.folders.length} knowledge folders`);
+      } else {
+        // No folders available
+        const noFoldersText = this.language === 'ja' ? 'フォルダが見つかりません' : 'No folders found';
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = noFoldersText;
+        this.ragKnowledgeFolderSelect.appendChild(option);
+        console.log('[RAG] No knowledge folders available');
+      }
+    } catch (error) {
+      console.error('[RAG] Error loading knowledge folders:', error);
+      const errorText = this.language === 'ja' ? 'フォルダ読み込みエラー' : 'Error loading folders';
+      this.ragKnowledgeFolderSelect.innerHTML = `<option value="">${errorText}</option>`;
+    }
+  }
+
+  async createNewRagModel() {
+    const knowledgeFolder = this.ragKnowledgeFolderSelect.value;
+    const language = this.ragModelLanguageSelect.value;
+
+    // Validate inputs
+    if (!knowledgeFolder) {
+      const errorMsg = this.language === 'ja'
+        ? '知識データフォルダを選択してください'
+        : 'Please select knowledge data folder';
+      alert(errorMsg);
+      return;
+    }
+
+    // Extract folder name from path (e.g., "knowledge-data/my-folder" -> "my-folder")
+    const modelName = knowledgeFolder.split('/').pop();
+
+    try {
+      // Disable button and show status
+      this.createRagBtn.disabled = true;
+      this.ragCreationStatus.style.display = 'flex';
+
+      console.log('[RAG] Building knowledge base:', { knowledgeFolder, modelName, language });
+
+      const response = await fetch('http://localhost:3000/api/rag-knowledge/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          knowledgeFolder,
+          modelName,
+          language,
+          chunkSize: 500,
+          chunkOverlap: 50
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('[RAG] Knowledge base built successfully');
+
+        // Reload available models and auto-load the new one
+        await this.loadAvailableRagModels();
+        this.ragModelSelect.value = `${modelName}.json`;
+
+        // Show success message
+        const successMsg = this.language === 'ja'
+          ? `RAG知識ベース「${modelName}」の作成に成功しました！自動的に読み込みます...`
+          : `RAG knowledge base "${modelName}" created successfully! Loading automatically...`;
+        alert(successMsg);
+
+        // Auto-load the model
+        await this.loadSelectedRagModel();
+      } else {
+        throw new Error(data.message || data.error || 'RAG build failed');
+      }
+    } catch (error) {
+      console.error('[RAG] Error creating knowledge base:', error);
+
+      // Show detailed error
+      const errorMsg = this.language === 'ja'
+        ? `RAG知識ベースの作成に失敗しました。\n\nエラー: ${error.message}\n\n【確認事項】\n- 知識データフォルダが存在するか\n- フォルダ内に対応ファイル(.txt, .pdf, .docx, .tex)があるか\n- フォルダパスが正しいか（例: knowledge-data）\n- Azure OpenAI APIキーが設定されているか`
+        : `Failed to create RAG knowledge base.\n\nError: ${error.message}\n\n【Check】\n- Knowledge data folder exists\n- Supported files (.txt, .pdf, .docx, .tex) are in the folder\n- Folder path is correct (e.g., knowledge-data)\n- Azure OpenAI API key is configured`;
+
+      alert(errorMsg);
+
+      this.ragCreationStatus.style.display = 'none';
+      this.createRagBtn.disabled = false;
+    }
+  }
+
+  proceedToSetup() {
+    // Hide N-gram phase, show setup phase
+    this.ngramPhase.style.display = 'none';
+    this.setupPhase.style.display = 'block';
   }
 
   initializeSpeechRecognition() {
@@ -687,6 +944,12 @@ class EchoNextApp {
   }
 
   sendTranscript(text) {
+    // Don't send empty or whitespace-only text
+    if (!text || text.trim().length === 0) {
+      console.log('[sendTranscript] Skipping empty text');
+      return;
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'transcript',
@@ -803,7 +1066,9 @@ class EchoNextApp {
     }
 
     // Don't send if text is too short (likely incomplete)
-    if (interimText.length < 2) {
+    // Increased threshold to reduce premature predictions
+    const minLength = this.language === 'ja' ? 3 : 5;
+    if (interimText.length < minLength) {
       return;
     }
 
@@ -814,14 +1079,14 @@ class EchoNextApp {
 
     this.lastInterimText = interimText;
 
-    // Wait 300ms before sending to see if more text arrives
+    // Wait 500ms before sending to see if more text arrives (increased from 300ms)
     this.interimDebounceTimer = setTimeout(() => {
       console.log('[Interim Prediction] Sending:', interimText);
       this.sendTranscript(interimText);
       this.interimDebounceTimer = null;
       // Mark this text as already predicted to avoid duplicate on final
       this.lastPredictedText = interimText;
-    }, 300);
+    }, 500);
   }
 }
 

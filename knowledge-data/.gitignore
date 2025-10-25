@@ -1,0 +1,11 @@
+# Ignore all files in knowledge-data directory
+*
+
+# But keep .gitkeep and .gitignore
+!.gitkeep
+!.gitignore
+
+# Optional: If you want to include example folders (but not their contents)
+# You can uncomment this:
+# !example/
+# example/*

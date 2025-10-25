@@ -1,0 +1,6 @@
+# Ignore all generated RAG knowledge base files
+*.json
+
+# But keep .gitkeep and .gitignore
+!.gitkeep
+!.gitignore

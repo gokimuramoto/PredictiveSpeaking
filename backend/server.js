@@ -10,7 +10,14 @@ import dotenv from 'dotenv';
 import { AzurePredictor } from './azurePredictor.js';
 import { CartesiaTTS } from './cartesiaTTS.js';
 import { TranscriptCorrector } from './transcriptCorrector.js';
+import { RAGPredictor } from './ragPredictor.js';
 import { createServer } from 'http';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -22,9 +29,10 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('frontend'));
 
-// Initialize AI components (LLM-only, no N-gram)
+// Initialize AI components
 const azurePredictor = new AzurePredictor();
 const transcriptCorrector = new TranscriptCorrector();
+const ragPredictor = new RAGPredictor();
 
 // Initialize TTS provider (Cartesia only now)
 console.log('🎙️  Using Cartesia TTS provider');
@@ -88,9 +96,10 @@ app.post('/api/clone-voice', async (req, res) => {
     const voiceId = await ttsProvider.cloneVoice(audioBuffer, transcript, 'UserVoice', language || 'ja');
     console.log('[Server] Voice cloning successful!');
 
-    // Do NOT train on voice cloning transcript
-    // We only want to learn from real-time speech during active system
-    console.log('[Server] Voice cloning complete (training skipped)');
+    // Add self-introduction transcript to conversation history
+    // This allows the LLM to reference the introduction content (name, etc.)
+    azurePredictor.addToHistory(transcript);
+    console.log('[Server] Added self-introduction to conversation history');
 
     res.json({
       success: true,
@@ -118,6 +127,174 @@ app.post('/api/reset', (req, res) => {
   ttsProvider.setVoiceId(null);
 
   res.json({ success: true, message: 'Session reset complete' });
+});
+
+// Get available RAG knowledge bases
+app.get('/api/rag-knowledge', (req, res) => {
+  try {
+    const ragDir = path.join(__dirname, '../rag-knowledge');
+
+    if (!fs.existsSync(ragDir)) {
+      return res.json({ knowledgeBases: [] });
+    }
+
+    const files = fs.readdirSync(ragDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        const filePath = path.join(ragDir, f);
+        const stats = fs.statSync(filePath);
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+
+        return {
+          filename: f,
+          name: data.modelName || f.replace('.json', ''),
+          language: data.language || 'unknown',
+          totalChunks: data.stats?.totalChunks || 0,
+          avgChunkLength: data.stats?.avgChunkLength || 0,
+          createdAt: data.createdAt || stats.mtime.toISOString(),
+          sizeKB: (stats.size / 1024).toFixed(2)
+        };
+      });
+
+    res.json({ models: files });
+  } catch (error) {
+    console.error('[API] Error listing RAG knowledge bases:', error);
+    res.status(500).json({ error: 'Failed to list knowledge bases' });
+  }
+});
+
+// Load RAG knowledge base
+app.post('/api/rag-knowledge/load', async (req, res) => {
+  try {
+    const { filename } = req.body;
+
+    if (!filename) {
+      return res.status(400).json({ error: 'Missing filename' });
+    }
+
+    const ragPath = path.join(__dirname, '../rag-knowledge', filename);
+
+    if (!fs.existsSync(ragPath)) {
+      return res.status(404).json({ error: 'Knowledge base not found' });
+    }
+
+    const success = await ragPredictor.loadKnowledgeBase(ragPath);
+
+    if (success) {
+      res.json({
+        success: true,
+        model: ragPredictor.getModelInfo()
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to load knowledge base' });
+    }
+  } catch (error) {
+    console.error('[API] Error loading RAG knowledge base:', error);
+    res.status(500).json({ error: 'Failed to load knowledge base' });
+  }
+});
+
+// Get current RAG knowledge base info
+app.get('/api/rag-knowledge/current', (req, res) => {
+  res.json(ragPredictor.getModelInfo());
+});
+
+// Unload RAG knowledge base
+app.post('/api/rag-knowledge/unload', (req, res) => {
+  ragPredictor.unload();
+  res.json({ success: true });
+});
+
+// Get available folders in knowledge-data directory
+app.get('/api/knowledge-folders', (req, res) => {
+  try {
+    const knowledgeDataDir = path.join(__dirname, '../knowledge-data');
+
+    if (!fs.existsSync(knowledgeDataDir)) {
+      return res.json({ folders: [] });
+    }
+
+    const entries = fs.readdirSync(knowledgeDataDir, { withFileTypes: true });
+    const folders = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => ({
+        name: entry.name,
+        path: `knowledge-data/${entry.name}`
+      }));
+
+    res.json({ folders });
+  } catch (error) {
+    console.error('[API] Error listing knowledge folders:', error);
+    res.status(500).json({ error: 'Failed to list folders' });
+  }
+});
+
+// Build new RAG knowledge base from documents
+app.post('/api/rag-knowledge/build', async (req, res) => {
+  try {
+    const { knowledgeFolder, modelName, language, chunkSize = 500, chunkOverlap = 50 } = req.body;
+
+    if (!knowledgeFolder || !modelName || !language) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    console.log('[API] Building RAG knowledge base:', { knowledgeFolder, modelName, language });
+
+    const { spawn } = await import('child_process');
+    const buildProcess = spawn('node', [
+      path.join(__dirname, 'buildRAG.js'),
+      knowledgeFolder,
+      modelName,
+      language,
+      chunkSize.toString(),
+      chunkOverlap.toString()
+    ], {
+      cwd: path.join(__dirname, '..')
+    });
+
+    let output = '';
+    let errorOutput = '';
+
+    buildProcess.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log(`[BuildRAG] ${data.toString().trim()}`);
+    });
+
+    buildProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error(`[BuildRAG Error] ${data.toString().trim()}`);
+    });
+
+    buildProcess.on('close', (code) => {
+      if (code === 0) {
+        console.log('[API] RAG knowledge base built successfully');
+        res.json({
+          success: true,
+          message: 'Knowledge base built successfully',
+          output: output
+        });
+      } else {
+        console.error('[API] RAG knowledge base build failed with code:', code);
+        res.status(500).json({
+          error: 'Knowledge base build failed',
+          message: errorOutput || output,
+          exitCode: code
+        });
+      }
+    });
+
+    buildProcess.on('error', (error) => {
+      console.error('[API] Error spawning build process:', error);
+      res.status(500).json({
+        error: 'Failed to start build process',
+        message: error.message
+      });
+    });
+
+  } catch (error) {
+    console.error('[API] Error building knowledge base:', error);
+    res.status(500).json({ error: 'Failed to build knowledge base', message: error.message });
+  }
 });
 
 // WebSocket connection handler
@@ -201,17 +378,23 @@ async function handleTranscript(sessionId, text) {
   const language = sessionLanguages.get(sessionId) || 'ja';
 
   try {
+    // Skip prediction if text is empty or only whitespace
+    if (!text || text.trim().length === 0) {
+      console.log('[Prediction] Skipping empty input');
+      return;
+    }
+
     console.log(`[Prediction] Input: "${text}" (language: ${language})`);
 
     // Update session transcript
     session.transcript += ' ' + text;
 
-    // 非同期でテキスト修正を実行（リアルタイム予測を妨げない）
-    // 修正後のテキストで履歴を更新
+    // Transcript correction disabled (was causing unwanted text deletion)
+    // If you want to re-enable, uncomment the code below:
+    /*
     transcriptCorrector.correct(text, azurePredictor.getHistory(), language)
       .then(correctedText => {
         if (correctedText !== text) {
-          // 履歴の最後の項目を修正後のテキストで置き換え
           const history = azurePredictor.conversationHistory;
           if (history.length > 0 && history[history.length - 1] === text) {
             history[history.length - 1] = correctedText;
@@ -222,32 +405,60 @@ async function handleTranscript(sessionId, text) {
       .catch(err => {
         console.error('[TranscriptCorrector] Background correction failed:', err.message);
       });
+    */
 
-    // Add original text to history immediately (for real-time prediction)
+    // Add text to history immediately (without correction)
     azurePredictor.addToHistory(text);
 
-    // Use LLM for prediction (no N-gram)
+    // Prediction strategy:
+    // 1. If RAG loaded: Use LLM with knowledge context (RAG)
+    // 2. If RAG not loaded: Use pure LLM
+    let predictedWord = null;
+    let predictionSource = null;
+    let confidence = 0;
+
     const llmStartTime = Date.now();
-    const azureResult = await azurePredictor.predict(text, azurePredictor.getHistory(), language);
-    const llmLatency = Date.now() - llmStartTime;
+    let llmResult = null;
 
-    console.log(`[Prediction] LLM took ${llmLatency}ms`);
+    // Use RAG (LLM + knowledge) if available
+    if (ragPredictor.modelLoaded) {
+      llmResult = await ragPredictor.predict(text, azurePredictor.getHistory(), language);
+      const ragLatency = Date.now() - llmStartTime;
 
-    if (!azureResult.word) {
-      console.log('[Prediction] No prediction available');
-      return;
+      if (llmResult && llmResult.word) {
+        console.log(`[Prediction] RAG took ${ragLatency}ms`);
+        console.log(`[Prediction] RAG prediction: "${llmResult.word}" (similarity: ${llmResult.topSimilarity?.toFixed(3)}, chunks: ${llmResult.relevantChunks})`);
+        predictedWord = llmResult.word;
+        predictionSource = 'rag';
+        confidence = llmResult.confidence;
+      }
     }
 
-    const predictedWord = azureResult.word;
-    console.log(`[Prediction] Predicted: "${predictedWord}"`);
+    // Fallback to pure LLM if RAG not loaded or failed
+    if (!predictedWord) {
+      llmResult = await azurePredictor.predict(text, azurePredictor.getHistory(), language);
+      const llmLatency = Date.now() - llmStartTime;
+
+      console.log(`[Prediction] Pure LLM took ${llmLatency}ms`);
+
+      if (!llmResult.word) {
+        console.log('[Prediction] No prediction available');
+        return;
+      }
+
+      predictedWord = llmResult.word;
+      predictionSource = 'gpt-4.1-mini';
+      confidence = llmResult.confidence;
+      console.log(`[Prediction] Pure LLM prediction: "${predictedWord}"`);
+    }
 
     // Send prediction to client immediately (don't wait for TTS)
     ws.send(JSON.stringify({
       type: 'prediction',
       word: predictedWord,
       input: text,  // Include input text for context
-      source: 'gpt-4.1-mini',
-      confidence: azureResult.confidence
+      source: predictionSource,
+      confidence: confidence
     }));
 
     // Generate TTS for predicted word
