@@ -1,13 +1,17 @@
-# EchoNext - Digital Twin Voice System
+# PredictiveSpeaking - Digital Twin Voice System
 
 リアルタイム音声継続システム。ユーザーの声をクローンし、GPT-4.1-miniで次の単語を予測して音声合成します。
 
 ## システム構成
 
-- **ASR (音声認識)**: Browser Web Speech API
+- **ASR (音声認識)**:
+  - Browser Web Speech API（推奨・リアルタイム）
+  - Azure OpenAI Realtime API (gpt-4o-mini-transcribe)
 - **LLM (予測)**: Azure OpenAI GPT-4.1-mini
 - **RAG (知識ベース)**: Azure OpenAI text-embedding-3-small + ベクトル検索（オプション）
-- **TTS (音声合成)**: Cartesia API
+- **TTS (音声合成)**:
+  - Qwen3-TTS（推奨・高品質ボイスクローン）
+  - Cartesia API（超低遅延）
 - **テキスト修正**: Azure OpenAI GPT-4.1-mini
 
 ## 必要な環境
@@ -15,7 +19,8 @@
 - Node.js 18以降
 - Chrome または Edge ブラウザ（Web Speech API対応）
 - Azure OpenAI API キー
-- Cartesia API キー
+- Cartesia API キー（Cartesia TTS使用時）
+- Qwen3-TTS サーバー（Qwen3-TTS使用時）
 
 ## セットアップ手順
 
@@ -45,17 +50,19 @@ AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1-mini
 AZURE_OPENAI_API_VERSION=2024-06-01
 
+# Azure OpenAI (gpt-4o-mini-transcribe) - Realtime API用（オプション）
+GPT4O_TRANSCRIBE_ENDPOINT=https://your-resource-eastus2.cognitiveservices.azure.com/openai/deployments/gpt-4o-mini-transcribe/audio/transcriptions
+GPT4O_TRANSCRIBE_API_KEY=your_gpt4o_transcribe_api_key_here
+GPT4O_TRANSCRIBE_API_VERSION=2025-03-01-preview
+
 # Azure OpenAI Embedding (RAG用 - オプション)
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-small
 
+# Qwen3-TTS（オプション）
+QWEN3_TTS_URL=https://your-qwen3-tts-server:8443/voice_clone
+
 # Server Config
 PORT=3000
-
-# TTS Provider Selection
-TTS_PROVIDER=cartesia
-
-# ASR Provider Selection
-ASR_PROVIDER=browser
 ```
 
 ### 3. サーバーの起動
@@ -159,13 +166,16 @@ rag-knowledge/          # 生成されたRAG知識ベース（自動作成）
 ## ファイル構成
 
 ```
-echonext/
+PredictiveSpeaking/
 ├── backend/
 │   ├── server.js              # メインサーバー（WebSocket + REST API）
 │   ├── azurePredictor.js      # GPT-4.1-mini予測エンジン
 │   ├── ragPredictor.js        # RAG予測エンジン（ベクトル検索）
 │   ├── buildRAG.js            # RAG知識ベース構築スクリプト
 │   ├── cartesiaTTS.js         # Cartesia音声合成
+│   ├── qwen3TTS.js            # Qwen3-TTS音声合成（ボイスクローン）
+│   ├── gpt4oTranscribe.js     # GPT-4o-mini-transcribe バッチ文字起こし
+│   ├── realtimeTranscribe.js  # Azure OpenAI Realtime API 文字起こし
 │   └── transcriptCorrector.js # テキスト修正
 ├── frontend/
 │   ├── index.html             # メインHTML（多言語対応UI）

@@ -1,25 +1,28 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>EchoNext - Digital Twin Voice System</title>
+  <title>PredictiveSpeaking - Digital Twin Voice System</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div class="container">
     <header>
-      <h1>🎙️ EchoNext</h1>
+      <h1>🎙️ PredictiveSpeaking</h1>
     </header>
 
     <!-- Language Selection Phase -->
     <div id="language-phase" class="phase">
       <div class="card">
         <h2 data-lang-ja="言語を選択 / Select Language" data-lang-en="Select Language / 言語を選択">言語を選択 / Select Language</h2>
-        <p class="instruction" data-lang-ja="使用する言語を選んでください" data-lang-en="Please select your language">使用する言語を選んでください</p>
+        <p class="instruction" data-lang-ja="使用する言語を選んでください" data-lang-en="Please select your language">使用する言語を選んでください
+        </p>
 
         <div class="language-buttons">
           <button id="select-japanese" class="btn btn-primary language-btn">
@@ -32,24 +35,141 @@
       </div>
     </div>
 
+    <!-- ASR Selection Phase -->
+    <div id="asr-phase" class="phase" style="display: none;">
+      <div class="card">
+        <h2 data-lang-ja="音声認識エンジン選択" data-lang-en="ASR Engine Selection">音声認識エンジン選択</h2>
+        <p class="instruction" data-lang-ja="使用する音声認識エンジンを選択してください" data-lang-en="Please select the ASR engine to use">
+          使用する音声認識エンジンを選択してください
+        </p>
+
+        <div class="asr-options">
+          <div class="asr-option" id="asr-browser-option">
+            <input type="radio" id="asr-browser" name="asr" value="browser" checked>
+            <label for="asr-browser">
+              <div class="asr-option-header">
+                <h3>🌐 Browser Web Speech API</h3>
+                <span class="badge badge-primary" data-lang-ja="標準" data-lang-en="Default">標準</span>
+              </div>
+              <p class="asr-option-desc" data-lang-ja="ブラウザ組み込みの音声認識。セットアップ不要で即座に利用可能。"
+                data-lang-en="Built-in browser speech recognition. Ready to use without setup.">
+                ブラウザ組み込みの音声認識。セットアップ不要で即座に利用可能。
+              </p>
+              <div class="asr-option-specs">
+                <span data-lang-ja="⚡ レイテンシ: ~100ms" data-lang-en="⚡ Latency: ~100ms">⚡ レイテンシ: ~100ms</span>
+                <span data-lang-ja="🌍 言語: 主要言語" data-lang-en="🌍 Languages: Major">🌍 言語: 主要言語</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="asr-option" id="asr-realtime-option">
+            <input type="radio" id="asr-realtime" name="asr" value="realtime">
+            <label for="asr-realtime">
+              <div class="asr-option-header">
+                <h3>🚀 Azure OpenAI Realtime API</h3>
+                <span class="badge badge-success" data-lang-ja="ストリーミング" data-lang-en="Streaming">ストリーミング</span>
+                <span id="realtime-unavailable-badge" class="badge badge-warning" style="display: none;"
+                  data-lang-ja="利用不可" data-lang-en="Unavailable">利用不可</span>
+              </div>
+              <p class="asr-option-desc" data-lang-ja="Azure OpenAI WebSocketストリーミング文字起こし。リアルタイムで高精度。"
+                data-lang-en="Azure OpenAI WebSocket streaming transcription. Real-time and high accuracy.">
+                Azure OpenAI WebSocketストリーミング文字起こし。リアルタイムで高精度。
+              </p>
+              <div class="asr-option-specs">
+                <span data-lang-ja="⚡ レイテンシ: ~200ms" data-lang-en="⚡ Latency: ~200ms">⚡ レイテンシ: ~200ms</span>
+                <span data-lang-ja="🌍 言語: 主要言語" data-lang-en="🌍 Languages: Major">🌍 言語: 主要言語</span>
+                <span data-lang-ja="☁️ WebSocket" data-lang-en="☁️ WebSocket">☁️ WebSocket</span>
+              </div>
+            </label>
+          </div>
+
+
+        </div>
+
+        <button id="confirm-asr-btn" class="btn btn-primary" data-lang-ja="次へ進む" data-lang-en="Proceed">
+          次へ進む
+        </button>
+      </div>
+    </div>
+
+    <!-- TTS Selection Phase -->
+    <div id="tts-phase" class="phase" style="display: none;">
+      <div class="card">
+        <h2 data-lang-ja="音声合成エンジン選択" data-lang-en="TTS Engine Selection">音声合成エンジン選択</h2>
+        <p class="instruction" data-lang-ja="使用する音声合成エンジンを選択してください" data-lang-en="Please select the TTS engine to use">
+          使用する音声合成エンジンを選択してください
+        </p>
+
+        <div class="asr-options">
+          <div class="asr-option" id="tts-qwen3-option">
+            <input type="radio" id="tts-qwen3" name="tts" value="qwen3" checked>
+            <label for="tts-qwen3">
+              <div class="asr-option-header">
+                <h3>🤖 Qwen3-TTS</h3>
+                <span class="badge badge-success" data-lang-ja="推奨" data-lang-en="Recommended">推奨</span>
+              </div>
+              <p class="asr-option-desc" data-lang-ja="高品質音声クローン。自然な音声合成。"
+                data-lang-en="High-quality voice cloning. Natural speech synthesis.">
+                高品質音声クローン。自然な音声合成。
+              </p>
+            </label>
+          </div>
+
+          <div class="asr-option" id="tts-cartesia-option">
+            <input type="radio" id="tts-cartesia" name="tts" value="cartesia">
+            <label for="tts-cartesia">
+              <div class="asr-option-header">
+                <h3>⚡ Cartesia Sonic</h3>
+                <span class="badge badge-primary" data-lang-ja="超低遅延" data-lang-en="Ultra Low Latency">超低遅延</span>
+              </div>
+              <p class="asr-option-desc" data-lang-ja="クラウドベースの最速音声合成。安定した品質と速度。"
+                data-lang-en="Cloud-based fastest TTS. Stable quality and speed.">
+                クラウドベースの最速音声合成。安定した品質と速度。
+              </p>
+            </label>
+          </div>
+        </div>
+
+        <button id="confirm-tts-btn" class="btn btn-primary" data-lang-ja="次へ進む" data-lang-en="Proceed">
+          次へ進む
+        </button>
+      </div>
+    </div>
+
     <!-- Knowledge Model Selection Phase -->
     <div id="ngram-phase" class="phase" style="display: none;">
       <div class="card">
         <h2 data-lang-ja="知識モデル選択" data-lang-en="Knowledge Model Selection">知識モデル選択</h2>
-        <p class="instruction" data-lang-ja="RAG知識ベースを使用するか、スキップしてLLMのみで予測を行います" data-lang-en="Use RAG knowledge base or skip to use LLM-only prediction">
+        <p class="instruction" data-lang-ja="RAG知識ベースを使用するか、スキップしてLLMのみで予測を行います"
+          data-lang-en="Use RAG knowledge base or skip to use LLM-only prediction">
           RAG知識ベースを使用するか、スキップしてLLMのみで予測を行います
         </p>
 
         <div class="ngram-options">
           <div class="option-group">
-            <h3 data-lang-ja="RAG知識ベース（推奨）" data-lang-en="RAG Knowledge Base (Recommended)">RAG知識ベース（推奨）</h3>
-            <p class="small-text" data-lang-ja="文脈を理解した高精度な予測" data-lang-en="High-accuracy prediction with context understanding">
+            <h3 data-lang-ja="モデルをスキップ（推奨）" data-lang-en="Skip Model (Recommended)">モデルをスキップ（推奨）</h3>
+            <p class="small-text" data-lang-ja="LLMのみで予測を行います。RAG知識ベースなしで動作。"
+              data-lang-en="Use LLM-only prediction. Works without RAG knowledge base.">
+              LLMのみで予測を行います。RAG知識ベースなしで動作。
+            </p>
+            <button id="skip-model-btn" class="btn btn-primary" data-lang-ja="スキップして次へ" data-lang-en="Skip to Next">
+              スキップして次へ
+            </button>
+          </div>
+
+          <div class="option-divider" data-lang-ja="または" data-lang-en="OR">または</div>
+
+          <div class="option-group">
+            <h3 data-lang-ja="既存のRAG知識ベース" data-lang-en="Existing RAG Knowledge Base">既存のRAG知識ベース</h3>
+            <p class="small-text" data-lang-ja="文脈を理解した高精度な予測"
+              data-lang-en="High-accuracy prediction with context understanding">
               文脈を理解した高精度な予測
             </p>
             <select id="rag-model-select" class="model-select">
               <option value="" data-lang-ja="読み込み中..." data-lang-en="Loading...">読み込み中...</option>
             </select>
-            <button id="load-rag-btn" class="btn btn-primary" disabled data-lang-ja="RAGを読み込む" data-lang-en="Load RAG">
+            <button id="load-rag-btn" class="btn btn-secondary" disabled data-lang-ja="RAGを読み込む"
+              data-lang-en="Load RAG">
               RAGを読み込む
             </button>
           </div>
@@ -57,40 +177,35 @@
           <div class="option-divider" data-lang-ja="または" data-lang-en="OR">または</div>
 
           <div class="option-group">
-            <h3 data-lang-ja="新しいRAG知識ベースを作成（推奨）" data-lang-en="Create New RAG Knowledge Base (Recommended)">新しいRAG知識ベースを作成（推奨）</h3>
-            <p class="small-text" data-lang-ja="知識データからベクトルDB構築（対応形式: .txt, .pdf, .docx, .tex）※エンベディングAPIを使用するため時間がかかります" data-lang-en="Build vector DB from knowledge data (Supported: .txt, .pdf, .docx, .tex) *Takes time as it uses embedding API">
+            <h3 data-lang-ja="新しいRAG知識ベースを作成" data-lang-en="Create New RAG Knowledge Base">
+              新しいRAG知識ベースを作成</h3>
+            <p class="small-text"
+              data-lang-ja="知識データからベクトルDB構築（対応形式: .txt, .pdf, .docx, .tex）※エンベディングAPIを使用するため時間がかかります"
+              data-lang-en="Build vector DB from knowledge data (Supported: .txt, .pdf, .docx, .tex) *Takes time as it uses embedding API">
               知識データからベクトルDB構築（対応形式: .txt, .pdf, .docx, .tex）※エンベディングAPIを使用するため時間がかかります
             </p>
             <div class="model-creation-form">
               <select id="rag-knowledge-folder-select" class="model-select">
                 <option value="" data-lang-ja="フォルダを読み込み中..." data-lang-en="Loading folders...">フォルダを読み込み中...</option>
               </select>
-              <label class="small-text" data-lang-ja="知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります" data-lang-en="Knowledge folder (in knowledge-data, non-recursive) *Folder name will be used as model name">知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります</label>
+              <label class="small-text" data-lang-ja="知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります"
+                data-lang-en="Knowledge folder (in knowledge-data, non-recursive) *Folder name will be used as model name">知識データフォルダ（knowledge-data内のフォルダ、再帰的読み込みなし）※選択したフォルダ名がモデル名になります</label>
               <select id="rag-model-language" class="model-select">
                 <option value="ja" data-lang-ja="日本語" data-lang-en="Japanese">日本語</option>
                 <option value="en" data-lang-ja="英語" data-lang-en="English">英語</option>
               </select>
-              <label class="small-text" data-lang-ja="知識データの主要言語（テキスト分割に使用）" data-lang-en="Primary language of knowledge data (used for text segmentation)">知識データの主要言語（テキスト分割に使用）</label>
-              <button id="create-rag-btn" class="btn btn-primary" data-lang-ja="RAG知識ベースを作成" data-lang-en="Create RAG Knowledge Base">
+              <label class="small-text" data-lang-ja="知識データの主要言語（テキスト分割に使用）"
+                data-lang-en="Primary language of knowledge data (used for text segmentation)">知識データの主要言語（テキスト分割に使用）</label>
+              <button id="create-rag-btn" class="btn btn-secondary" data-lang-ja="RAG知識ベースを作成"
+                data-lang-en="Create RAG Knowledge Base">
                 RAG知識ベースを作成
               </button>
             </div>
             <div id="rag-creation-status" class="status" style="display: none;">
               <span class="spinner"></span>
-              <span id="rag-creation-status-text" data-lang-ja="知識ベースを構築中..." data-lang-en="Building knowledge base...">知識ベースを構築中...</span>
+              <span id="rag-creation-status-text" data-lang-ja="知識ベースを構築中..."
+                data-lang-en="Building knowledge base...">知識ベースを構築中...</span>
             </div>
-          </div>
-
-          <div class="option-divider" data-lang-ja="または" data-lang-en="OR">または</div>
-
-          <div class="option-group">
-            <h3 data-lang-ja="モデルをスキップ" data-lang-en="Skip Model">モデルをスキップ</h3>
-            <p class="small-text" data-lang-ja="LLMのみで予測を行います" data-lang-en="Use LLM-only prediction">
-              LLMのみで予測を行います
-            </p>
-            <button id="skip-model-btn" class="btn btn-secondary" data-lang-ja="スキップして次へ" data-lang-en="Skip to Next">
-              スキップして次へ
-            </button>
           </div>
         </div>
 
@@ -105,7 +220,8 @@
     <div id="setup-phase" class="phase" style="display: none;">
       <div class="card">
         <h2 data-lang-ja="セットアップ" data-lang-en="Setup">セットアップ</h2>
-        <p class="instruction" data-lang-ja="まずはあなたの声を登録します。<br>録音開始とともに10秒以上自己紹介をしてください。" data-lang-en="First, let's register your voice.<br>Please introduce yourself for at least 10 seconds after starting the recording.">
+        <p class="instruction" data-lang-ja="まずはあなたの声を登録します。<br>録音開始とともに10秒以上自己紹介をしてください。"
+          data-lang-en="First, let's register your voice.<br>Please introduce yourself for at least 10 seconds after starting the recording.">
           まずはあなたの声を登録します。<br>
           録音開始とともに10秒以上自己紹介をしてください。
         </p>
@@ -116,13 +232,16 @@
 
         <div id="recording-status" class="status" style="display: none;">
           <span class="pulse"></span>
-          <span data-lang-ja="録音中... " data-lang-en="Recording... ">録音中... </span><span id="recording-time">0</span><span data-lang-ja="秒" data-lang-en="s">秒</span>
+          <span data-lang-ja="録音中... " data-lang-en="Recording... ">録音中... </span><span
+            id="recording-time">0</span><span data-lang-ja="秒" data-lang-en="s">秒</span>
           <div id="countdown-container" style="display: none; margin-top: 10px;">
-            <span style="font-size: 14px; color: #ff9800;" data-lang-ja="⏱️ 推奨: あと" data-lang-en="⏱️ Recommended: ">⏱️ 推奨: あと</span><span id="countdown-time">10</span><span data-lang-ja="秒" data-lang-en="s more">秒</span>
+            <span style="font-size: 14px; color: #ff9800;" data-lang-ja="⏱️ 推奨: あと" data-lang-en="⏱️ Recommended: ">⏱️
+              推奨: あと</span><span id="countdown-time">10</span><span data-lang-ja="秒" data-lang-en="s more">秒</span>
           </div>
         </div>
 
-        <button id="stop-recording" class="btn btn-danger" style="display: none;" data-lang-ja="⏹ 録音停止" data-lang-en="⏹ Stop Recording">
+        <button id="stop-recording" class="btn btn-danger" style="display: none;" data-lang-ja="⏹ 録音停止"
+          data-lang-en="⏹ Stop Recording">
           ⏹ 録音停止
         </button>
 
@@ -153,7 +272,8 @@
       <div class="card">
         <h2 data-lang-ja="リアルタイム文字起こし" data-lang-en="Live Transcription">リアルタイム文字起こし</h2>
         <div id="live-transcript" class="transcript-box">
-          <p id="live-text" class="live-text" data-lang-ja="話し始めると、ここに文字起こしが表示されます..." data-lang-en="Start speaking and the transcription will appear here...">話し始めると、ここに文字起こしが表示されます...</p>
+          <p id="live-text" class="live-text" data-lang-ja="話し始めると、ここに文字起こしが表示されます..."
+            data-lang-en="Start speaking and the transcription will appear here...">話し始めると、ここに文字起こしが表示されます...</p>
         </div>
       </div>
 
@@ -196,4 +316,5 @@
 
   <script src="app.js?v=20251014001"></script>
 </body>
+
 </html>

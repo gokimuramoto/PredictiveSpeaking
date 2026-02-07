@@ -45,13 +45,14 @@ export class CartesiaTTS {
       // Make direct API call to get proper error messages
       const formData = new FormData();
       formData.append('clip', blob, 'voice.webm');
+      formData.append('mode', 'similarity');  // Use similarity mode (stability removed in 2025-04-16)
 
       try {
         const response = await fetch('https://api.cartesia.ai/voices/clone/clip', {
           method: 'POST',
           headers: {
             'X-API-Key': process.env.CARTESIA_API_KEY,
-            'Cartesia-Version': '2025-04-16'
+            'Cartesia-Version': '2024-11-13'  // Use 2024-11-13 for stable cloning support
           },
           body: formData
         });
@@ -104,64 +105,11 @@ export class CartesiaTTS {
   }
 
   /**
-   * Generate speech from text using WebSocket streaming
+   * Generate speech from text using REST API
    * @param {string} text - Text to synthesize
    * @param {string} voiceId - Voice ID (optional, uses cloned voice if available)
+   * @param {string} language - Language code (optional)
    * @returns {Promise<Buffer>} - Audio data
-   */
-  async synthesize(text, voiceId = null) {
-    try {
-      const targetVoiceId = voiceId || this.voiceId || this.defaultVoiceId;
-
-      console.log(`[Cartesia] Synthesizing: "${text}" with voice ${targetVoiceId}`);
-
-      const audioChunks = [];
-
-      // Create WebSocket connection for streaming
-      const ws = await this.client.tts.websocket({
-        model: 'sonic-english', // Use sonic-multilingual for Japanese
-        voice: { id: targetVoiceId },
-        output_format: {
-          container: 'raw',
-          encoding: 'pcm_f32le',
-          sample_rate: 44100
-        }
-      });
-
-      // Send text for synthesis
-      await ws.send({
-        transcript: text,
-        continue: false
-      });
-
-      // Collect audio chunks
-      return new Promise((resolve, reject) => {
-        ws.on('message', (message) => {
-          if (message.type === 'chunk') {
-            audioChunks.push(Buffer.from(message.data, 'base64'));
-          } else if (message.type === 'done') {
-            const audioBuffer = Buffer.concat(audioChunks);
-            console.log(`[Cartesia] Synthesis complete. Audio size: ${audioBuffer.length} bytes`);
-            ws.close();
-            resolve(audioBuffer);
-          }
-        });
-
-        ws.on('error', (error) => {
-          console.error('[Cartesia] WebSocket error:', error);
-          reject(error);
-        });
-      });
-
-    } catch (error) {
-      console.error('[Cartesia] Synthesis error:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Quick synthesis using REST API (more reliable than WebSocket)
-   * This is the main synthesis method called by the provider interface
    */
   async synthesize(text, voiceId = null, language = null) {
     return this.synthesizeQuick(text, voiceId, language);
@@ -182,7 +130,7 @@ export class CartesiaTTS {
         method: 'POST',
         headers: {
           'X-API-Key': process.env.CARTESIA_API_KEY,
-          'Cartesia-Version': '2025-04-16',
+          'Cartesia-Version': '2024-11-13',  // Match clone API version
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

@@ -1,5 +1,5 @@
 /**
- * EchoNext Backend Server
+ * PredictiveSpeaking Backend Server
  * Handles real-time voice prediction and synthesis
  */
 
@@ -9,8 +9,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { AzurePredictor } from './azurePredictor.js';
 import { CartesiaTTS } from './cartesiaTTS.js';
+import { Qwen3TTS } from './qwen3TTS.js';
 import { TranscriptCorrector } from './transcriptCorrector.js';
 import { RAGPredictor } from './ragPredictor.js';
+import { Gpt4oTranscribe } from './gpt4oTranscribe.js';
+import { RealtimeTranscribe } from './realtimeTranscribe.js';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -34,19 +37,46 @@ const azurePredictor = new AzurePredictor();
 const transcriptCorrector = new TranscriptCorrector();
 const ragPredictor = new RAGPredictor();
 
-// Initialize TTS provider (Cartesia only now)
-console.log('🎙️  Using Cartesia TTS provider');
-const ttsProvider = new CartesiaTTS();
+// Initialize TTS providers
+const ttsProviders = {
+  cartesia: new CartesiaTTS(),
+  qwen3: new Qwen3TTS()
+};
 
-// Initialize ASR provider (browser only - whisper removed)
-const ASR_PROVIDER = process.env.ASR_PROVIDER || 'browser';
+// Default provider
+let activeTTSProvider = ttsProviders.cartesia;
+console.log('🎙️  Default TTS provider: Cartesia');
 
-if (ASR_PROVIDER === 'whisper') {
-  console.warn('⚠️  Whisper ASR not available in this version. Falling back to Browser Web Speech API.');
-  console.log('🎤 Using Browser Web Speech API');
-} else {
-  console.log('🎤 Using Browser Web Speech API');
+// Initialize GPT-4o Transcribe ASR (optional)
+let gpt4oTranscribe = null;
+
+// Try to connect to GPT-4o Transcribe service
+async function initGpt4oTranscribe() {
+  try {
+    gpt4oTranscribe = new Gpt4oTranscribe();
+    const health = await gpt4oTranscribe.checkHealth();
+    if (health && health.status === 'healthy') {
+      console.log('🎤 GPT-4o Transcribe: Available');
+      console.log(`   Model: ${health.model}`);
+    } else {
+      console.log('⚠️  GPT-4o Transcribe: Not available (will use Browser ASR only)');
+      gpt4oTranscribe = null;
+    }
+  } catch (error) {
+    console.log('⚠️  GPT-4o Transcribe: Not available (will use Browser ASR only)');
+    gpt4oTranscribe = null;
+  }
 }
+
+// Call initialization (async, non-blocking)
+initGpt4oTranscribe();
+
+// Initialize ASR provider
+const ASR_PROVIDER = process.env.ASR_PROVIDER || 'browser';
+console.log('🎤 Using Browser Web Speech API');
+
+// Realtime API transcription connections per session
+const realtimeConnections = new Map();
 
 // Session state
 const sessions = new Map();
@@ -64,37 +94,75 @@ const wss = new WebSocketServer({ server });
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    ttsProvider: ttsProvider.getProviderName(),
+    ttsProvider: activeTTSProvider.getProviderName(),
     asrProvider: ASR_PROVIDER,
     predictor: 'azure-llm-only',
-    voiceId: ttsProvider.getVoiceId()
+    voiceId: activeTTSProvider.getVoiceId()
   });
 });
 
 // Voice cloning endpoint
 app.post('/api/clone-voice', async (req, res) => {
   try {
-    const { audioData, transcript, language } = req.body;
+    let { audioData, transcript, language } = req.body;
 
-    if (!audioData || !transcript) {
+    if (!audioData) {
       return res.status(400).json({
         success: false,
-        error: 'Missing audioData or transcript'
+        error: 'Missing audioData'
       });
     }
 
     console.log('[Server] Received voice cloning request');
-    console.log(`[Server] Transcript: ${transcript}`);
+    console.log(`[Server] Transcript from client: ${transcript || '(empty)'}`);
     console.log(`[Server] Language: ${language || 'ja'}`);
 
     // Convert base64 to buffer
     const audioBuffer = Buffer.from(audioData.split(',')[1], 'base64');
     console.log(`[Server] Audio buffer size: ${audioBuffer.length} bytes`);
 
+    // If transcript is empty, use GPT-4o to transcribe
+    if (!transcript || transcript.trim().length === 0) {
+      console.log('[Server] No transcript provided, using GPT-4o to transcribe...');
+
+      if (gpt4oTranscribe) {
+        try {
+          transcript = await gpt4oTranscribe.transcribe(audioBuffer, language || 'ja');
+          console.log(`[Server] GPT-4o transcription result: ${transcript}`);
+        } catch (transcribeError) {
+          console.error('[Server] GPT-4o transcription failed:', transcribeError.message);
+          return res.status(400).json({
+            success: false,
+            error: 'Transcription failed',
+            message: 'Could not transcribe audio. Please try speaking more clearly.'
+          });
+        }
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'No transcript and GPT-4o not available',
+          message: 'Speech recognition failed and GPT-4o is not available for fallback.'
+        });
+      }
+
+      if (!transcript || transcript.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Empty transcript',
+          message: 'Could not detect any speech in the recording. Please try again.'
+        });
+      }
+    }
+
     // Clone voice (pass transcript for providers that need it)
-    console.log('[Server] Attempting voice cloning...');
-    const voiceId = await ttsProvider.cloneVoice(audioBuffer, transcript, 'UserVoice', language || 'ja');
+    console.log(`[Server] Attempting voice cloning with ${activeTTSProvider.getProviderName()}...`);
+    const voiceId = await activeTTSProvider.cloneVoice(audioBuffer, transcript, 'UserVoice', language || 'ja');
     console.log('[Server] Voice cloning successful!');
+
+    // Reset conversation history before adding new voice clone introduction
+    // This ensures old session data doesn't interfere with new voice
+    azurePredictor.reset();
+    console.log('[Server] Reset conversation history for new voice');
 
     // Add self-introduction transcript to conversation history
     // This allows the LLM to reference the introduction content (name, etc.)
@@ -124,9 +192,46 @@ app.post('/api/reset', (req, res) => {
   console.log('[Server] Resetting session...');
 
   azurePredictor.reset();
-  ttsProvider.setVoiceId(null);
+  activeTTSProvider.setVoiceId(null);
 
   res.json({ success: true, message: 'Session reset complete' });
+});
+
+// Get available ASR providers
+app.get('/api/asr-providers', (req, res) => {
+  const hasAzureConfig = !!(process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY);
+
+  res.json({
+    providers: [
+      {
+        id: 'browser',
+        name: 'Browser Web Speech API',
+        available: true,
+        description: 'Built-in browser speech recognition (Google servers)',
+        latency: '~100ms',
+        languages: 'Major languages only',
+        features: ['Real-time', 'No setup required', 'Online only']
+      },
+      {
+        id: 'realtime',
+        name: 'Azure OpenAI Realtime API',
+        available: hasAzureConfig,
+        description: 'Azure OpenAI streaming transcription via WebSocket',
+        latency: '~200ms',
+        languages: 'Major languages',
+        features: ['Real-time streaming', 'High accuracy', 'Server VAD']
+      },
+      {
+        id: 'gpt4o',
+        name: 'GPT-4o-mini Transcribe (Batch)',
+        available: gpt4oTranscribe !== null && gpt4oTranscribe.isAvailable,
+        description: 'Azure OpenAI batch transcription (2-3 second chunks)',
+        latency: '3-5 seconds',
+        languages: 'Major languages',
+        features: ['High accuracy', 'Fallback option']
+      }
+    ]
+  });
 });
 
 // Get available RAG knowledge bases
@@ -316,32 +421,178 @@ wss.on('connection', (ws) => {
       switch (data.type) {
         case 'set_language':
           // Store language preference for this session
-          sessionLanguages.set(sessionId, data.language || 'ja');
+          sessionLanguages.set(sessionId, {
+            language: data.language || 'ja',
+            asrProvider: data.asrProvider || 'browser'
+          });
           console.log(`[WebSocket] Session ${sessionId} language set to: ${data.language}`);
+          console.log(`[WebSocket] Session ${sessionId} ASR provider: ${data.asrProvider || 'browser'}`);
+          break;
+
+        case 'set_asr_provider':
+          // Update ASR provider for this session
+          const currentConfig = sessionLanguages.get(sessionId) || {};
+          sessionLanguages.set(sessionId, {
+            language: currentConfig.language || data.language || 'ja',
+            asrProvider: data.asrProvider || 'browser'
+          });
+          console.log(`[WebSocket] Session ${sessionId} ASR provider set to: ${data.asrProvider}`);
+          break;
+
+        case 'set_tts_provider':
+          if (ttsProviders[data.provider]) {
+            activeTTSProvider = ttsProviders[data.provider];
+            console.log(`[WebSocket] TTS provider switched to: ${data.provider}`);
+
+            // Notify client of switch
+            ws.send(JSON.stringify({
+              type: 'tts_provider_changed',
+              provider: data.provider
+            }));
+          } else {
+            console.warn(`[WebSocket] Unknown TTS provider requested: ${data.provider}`);
+          }
           break;
 
         case 'start':
           session.isActive = true;
+          const sessionConfig = sessionLanguages.get(sessionId) || {};
           ws.send(JSON.stringify({
             type: 'started',
-            asrProvider: ASR_PROVIDER
+            asrProvider: sessionConfig.asrProvider || ASR_PROVIDER
           }));
-          console.log(`[WebSocket] Session ${sessionId} started`);
+          console.log(`[WebSocket] Session ${sessionId} started with ASR: ${sessionConfig.asrProvider || 'browser'}`);
           break;
 
         case 'stop':
           session.isActive = false;
           ws.send(JSON.stringify({ type: 'stopped' }));
           console.log(`[WebSocket] Session ${sessionId} stopped`);
+
+          // Also stop any Realtime connection
+          if (realtimeConnections.has(sessionId)) {
+            const rtConn = realtimeConnections.get(sessionId);
+            rtConn.disconnect();
+            realtimeConnections.delete(sessionId);
+            console.log(`[Realtime] Disconnected for session ${sessionId}`);
+          }
+          break;
+
+        case 'start_realtime':
+          // Initialize Realtime API connection for this session
+          try {
+            const sessionConfig = sessionLanguages.get(sessionId) || {};
+            const language = sessionConfig.language || 'ja';
+
+            const rtTranscribe = new RealtimeTranscribe();
+
+            // Set up callbacks
+            rtTranscribe.onTranscriptDelta = (delta) => {
+              ws.send(JSON.stringify({
+                type: 'transcript_delta',
+                delta: delta
+              }));
+            };
+
+            rtTranscribe.onTranscriptCompleted = async (transcript) => {
+              // Send transcript to client
+              ws.send(JSON.stringify({
+                type: 'transcript_update',
+                text: transcript
+              }));
+
+              // Also handle prediction
+              if (transcript && transcript.trim().length > 0) {
+                await handleTranscript(sessionId, transcript);
+              }
+            };
+
+            rtTranscribe.onError = (error) => {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Realtime transcription error: ' + error.message
+              }));
+            };
+
+            await rtTranscribe.connect(language);
+            realtimeConnections.set(sessionId, rtTranscribe);
+
+            ws.send(JSON.stringify({
+              type: 'realtime_connected',
+              model: rtTranscribe.model
+            }));
+
+            console.log(`[Realtime] Connected for session ${sessionId}, language: ${language}`);
+          } catch (error) {
+            console.error('[Realtime] Connection error:', error.message);
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Failed to connect to Realtime API: ' + error.message
+            }));
+          }
+          break;
+
+        case 'stop_realtime':
+          if (realtimeConnections.has(sessionId)) {
+            const rtConn = realtimeConnections.get(sessionId);
+            rtConn.disconnect();
+            realtimeConnections.delete(sessionId);
+            ws.send(JSON.stringify({ type: 'realtime_disconnected' }));
+            console.log(`[Realtime] Disconnected for session ${sessionId}`);
+          }
+          break;
+
+        case 'audio_realtime':
+          // Forward audio to Realtime API
+          if (realtimeConnections.has(sessionId) && data.audioData) {
+            const rtConn = realtimeConnections.get(sessionId);
+            const audioBuffer = Buffer.from(data.audioData, 'base64');
+            rtConn.sendAudio(audioBuffer);
+          }
           break;
 
         case 'transcript':
           await handleTranscript(sessionId, data.text);
           break;
 
-        case 'audio':
-          // Handle audio data from frontend (whisper not available in this version)
-          console.warn('[WebSocket] Audio message received but Whisper ASR is not available');
+        case 'audio_gpt4o':
+          // Handle audio data from GPT-4o Transcribe mode
+          if (gpt4oTranscribe && data.audioData) {
+            try {
+              const audioBuffer = Buffer.from(data.audioData, 'base64');
+              const sessionConfig = sessionLanguages.get(sessionId) || {};
+              const language = sessionConfig.language || 'ja';
+
+              console.log(`[GPT-4o Transcribe] Processing audio chunk (${audioBuffer.length} bytes)`);
+              const transcript = await gpt4oTranscribe.transcribe(audioBuffer, language);
+
+              if (transcript && transcript.trim().length > 0) {
+                console.log(`[GPT-4o Transcribe] Transcript: "${transcript}"`);
+
+                // Send transcript to client for live display
+                ws.send(JSON.stringify({
+                  type: 'transcript_update',
+                  text: transcript
+                }));
+
+                await handleTranscript(sessionId, transcript);
+              } else {
+                console.log('[GPT-4o Transcribe] Empty transcript, skipping');
+              }
+            } catch (error) {
+              console.error('[GPT-4o Transcribe] Error:', error.message);
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'GPT-4o Transcribe processing failed: ' + error.message
+              }));
+            }
+          } else if (!gpt4oTranscribe) {
+            console.warn('[GPT-4o Transcribe] Audio received but service is not available');
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'GPT-4o Transcribe service is not available'
+            }));
+          }
           break;
 
         default:
@@ -375,7 +626,8 @@ async function handleTranscript(sessionId, text) {
   }
 
   const ws = session.ws;
-  const language = sessionLanguages.get(sessionId) || 'ja';
+  const sessionConfig = sessionLanguages.get(sessionId) || {};
+  const language = sessionConfig.language || 'ja';
 
   try {
     // Skip prediction if text is empty or only whitespace
@@ -392,13 +644,12 @@ async function handleTranscript(sessionId, text) {
     // Transcript correction disabled (was causing unwanted text deletion)
     // If you want to re-enable, uncomment the code below:
     /*
-    transcriptCorrector.correct(text, azurePredictor.getHistory(), language)
+    transcriptCorrector.corrPredictiveSpeaking/, azurePredictor.getHistory(), language)
       .then(correctedText => {
         if (correctedText !== text) {
           const history = azurePredictor.conversationHistory;
           if (history.length > 0 && history[history.length - 1] === text) {
             history[history.length - 1] = correctedText;
-            console.log(`[History] Updated with corrected text: "${correctedText}"`);
           }
         }
       })
@@ -465,7 +716,7 @@ async function handleTranscript(sessionId, text) {
     console.log(`[TTS] Synthesizing: "${predictedWord}"`);
     const ttsStartTime = Date.now();
 
-    const audioBuffer = await ttsProvider.synthesize(predictedWord, null, language);
+    const audioBuffer = await activeTTSProvider.synthesize(predictedWord, null, language);
 
     const ttsLatency = Date.now() - ttsStartTime;
     console.log(`[TTS] Synthesis took ${ttsLatency}ms`);
@@ -495,9 +746,9 @@ async function handleTranscript(sessionId, text) {
 
 // Start server
 server.listen(PORT, () => {
-  console.log(`\n🚀 EchoNext Server running on http://localhost:${PORT}`);
+  console.log(`\n🚀 PredictiveSpeaking Server running on http://localhost:${PORT}`);
   console.log(`📊 WebSocket server ready`);
-  console.log(`🎙️  TTS Provider: ${ttsProvider.getProviderName()}`);
+  console.log(`🎙️  Active TTS Provider: ${activeTTSProvider.getProviderName()}`);
   console.log(`🎤 ASR Provider: ${ASR_PROVIDER}`);
   console.log(`🎤 Cartesia API: ${process.env.CARTESIA_API_KEY ? 'Configured' : 'Missing'}`);
   console.log(`🤖 Azure OpenAI: ${process.env.AZURE_OPENAI_API_KEY ? 'Configured' : 'Missing'}`);

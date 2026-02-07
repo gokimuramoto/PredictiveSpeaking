@@ -73,28 +73,14 @@ Next word the speaker is likely to say:`;
       const predictedText = response.choices[0].message.content.trim();
       console.log(`[Azure OpenAI] Raw response: "${predictedText}"`);
 
-      // For Japanese, don't use \w as it doesn't match Japanese characters
-      // Just take the first word/token
-      const word = predictedText.split(/\s+/)[0].trim();
+      // Take up to 3 words as a natural phrase (matches the prompt instruction)
+      const words = predictedText.split(/\s+/).slice(0, 3).join(' ').trim();
 
-      // Check if predicted word is duplicate of last input word
-      const lastWords = context.trim().split(/\s+/);
-      const lastWord = lastWords[lastWords.length - 1];
-
-      if (word && lastWord && word.includes(lastWord)) {
-        console.log(`[Azure OpenAI] Skipping duplicate prediction: "${word}" (matches last word "${lastWord}")`);
-        return {
-          word: null,
-          confidence: 0,
-          reasoning: 'duplicate_avoided'
-        };
-      }
-
-      console.log(`[Azure OpenAI] Predicted word: "${word}" for context: "${context}"`);
+      console.log(`[Azure OpenAI] Predicted word: "${words}" for context: "${context}"`);
 
       return {
-        word: word || null,
-        confidence: word ? 0.8 : 0,
+        word: words || null,
+        confidence: words ? 0.8 : 0,
         reasoning: 'llm_prediction',
         rawResponse: predictedText
       };

@@ -1,9 +1,9 @@
 /**
- * EchoNext Frontend Application
+ * PredictiveSpeaking Frontend Application
  * Handles voice recording, speech recognition, and TTS playback
  */
 
-class EchoNextApp {
+class PredictiveSpeakingApp {
   constructor() {
     this.serverUrl = 'ws://localhost:3000';
     this.ws = null;
@@ -11,62 +11,86 @@ class EchoNextApp {
     this.mediaRecorder = null;
     this.audioChunks = [];
     this.recordingStartTime = null;
-    this.isSystemActive = false;
-    this.audioContext = null;
+    this.recordingTimer = null; // Added
     this.currentTranscript = '';
     this.interimDebounceTimer = null;
     this.lastInterimText = '';
     this.lastPredictedText = '';
-    this.lastSpeechTimestamp = 0;
-    this.audioPlaybackTimeout = 2000; // Only play audio if received within 2s of last speech
+    this.language = null; // Selected language ('ja' or 'en') - moved from end, value changed from 'ja' to null
+    this.isSystemActive = false;
     this.predictionHistory = []; // Store last 3 predictions with timestamps
+    this.audioContext = null;
     this.currentAudioSource = null; // Track currently playing audio source
+
+    // ASR provider selection
+    this.asrProvider = 'browser'; // 'browser' or 'gpt4o'
+    this.gpt4oAvailable = false;
+
+    // GPT-4o Transcribe recording
+    this.gpt4oStream = null;
+    this.gpt4oRecorder = null;
+    this.gpt4oAudioChunks = [];
+    this.gpt4oChunkInterval = 2000; // 2 seconds - reduced for faster response
+
+    // Audio playback cancellation
     this.audioSequenceId = 0; // Track audio sequence to invalidate old audio
-    this.asrProvider = 'browser'; // Will be set by server ('browser' or 'whisper')
-    this.whisperMediaRecorder = null; // Separate recorder for Whisper mode
-    this.whisperAudioChunks = []; // Audio chunks for Whisper
-    this.whisperRecordingInterval = 2000; // Send audio every 2 seconds to Whisper
-    this.language = null; // Selected language ('ja' or 'en')
+    this.lastSpeechTimestamp = 0;
+    this.audioPlaybackTimeout = 3000; // 3 seconds
 
     this.initializeElements();
     this.setupLanguageSelection();
+    this.setupEventListeners();
+    this.connectWebSocket();
   }
 
   initializeElements() {
-    // Language selection phase elements
+    // Phase elements
     this.languagePhase = document.getElementById('language-phase');
+    this.asrPhase = document.getElementById('asr-phase');
+    this.ttsPhase = document.getElementById('tts-phase');
+    this.ngramPhase = document.getElementById('ngram-phase');
+    this.setupPhase = document.getElementById('setup-phase');
+    this.mainPhase = document.getElementById('main-phase');
+
+    // Language selection
     this.selectJapaneseBtn = document.getElementById('select-japanese');
     this.selectEnglishBtn = document.getElementById('select-english');
 
-    // Model selection phase elements
-    this.ngramPhase = document.getElementById('ngram-phase');
+    // ASR selection
+    this.asrBrowserOption = document.getElementById('asr-browser-option');
+    this.asrMetaOption = document.getElementById('asr-meta-option');
+    this.confirmAsrBtn = document.getElementById('confirm-asr-btn');
+    this.metaUnavailableBadge = document.getElementById('meta-unavailable-badge');
+
+    // TTS selection
+    this.confirmTtsBtn = document.getElementById('confirm-tts-btn');
+
+    // N-gram/RAG model selection
+    this.ragModelSelect = document.getElementById('rag-model-select');
+    this.loadRagBtn = document.getElementById('load-rag-btn');
     this.skipModelBtn = document.getElementById('skip-model-btn');
     this.modelInfo = document.getElementById('model-info');
     this.modelDetails = document.getElementById('model-details');
 
-    // RAG model elements
-    this.ragModelSelect = document.getElementById('rag-model-select');
-    this.loadRagBtn = document.getElementById('load-rag-btn');
+    // RAG creation elements
     this.ragKnowledgeFolderSelect = document.getElementById('rag-knowledge-folder-select');
-    this.ragModelLanguageSelect = document.getElementById('rag-model-language');
+    this.ragModelLanguage = document.getElementById('rag-model-language');
     this.createRagBtn = document.getElementById('create-rag-btn');
     this.ragCreationStatus = document.getElementById('rag-creation-status');
     this.ragCreationStatusText = document.getElementById('rag-creation-status-text');
 
-    // Setup phase elements
-    this.setupPhase = document.getElementById('setup-phase');
-    this.mainPhase = document.getElementById('main-phase');
+    // Recording elements
     this.startRecordingBtn = document.getElementById('start-recording');
     this.stopRecordingBtn = document.getElementById('stop-recording');
     this.recordingStatus = document.getElementById('recording-status');
-    this.processingStatus = document.getElementById('processing-status');
     this.recordingTime = document.getElementById('recording-time');
     this.countdownContainer = document.getElementById('countdown-container');
     this.countdownTime = document.getElementById('countdown-time');
+    this.processingStatus = document.getElementById('processing-status');
     this.transcriptDisplay = document.getElementById('transcript-display');
     this.transcriptText = document.getElementById('transcript-text');
 
-    // Main phase elements
+    // System elements
     this.toggleSystemBtn = document.getElementById('toggle-system');
     this.resetSystemBtn = document.getElementById('reset-system');
     this.liveText = document.getElementById('live-text');
@@ -87,20 +111,227 @@ class EchoNextApp {
 
   selectLanguage(lang) {
     this.language = lang;
-    console.log(`[Language] Selected: ${lang}`);
+    console.log(`[App] Selected language: ${lang}`);
 
-    // Update UI language
+    // Update all UI elements with lang- attributes
     this.updateUILanguage(lang);
 
-    // Hide language selection, show N-gram model selection phase
+    // Hide language phase, show ASR selection phase
     this.languagePhase.style.display = 'none';
+    this.asrPhase.style.display = 'block';
+
+    // Setup ASR selection
+    this.setupAsrSelection();
+  }
+
+  async setupAsrSelection() {
+    // Check available ASR providers
+    try {
+      const response = await fetch('http://localhost:3000/api/asr-providers');
+      const data = await response.json();
+
+      // Check GPT-4o Transcribe availability
+      const gpt4oProvider = data.providers.find(p => p.id === 'gpt4o');
+      this.gpt4oAvailable = gpt4oProvider?.available || false;
+
+      if (!this.gpt4oAvailable) {
+        // Disable GPT-4o ASR option
+        this.asrMetaOption.classList.add('disabled');
+        this.metaUnavailableBadge.style.display = 'inline-block';
+        document.getElementById('asr-meta').disabled = true;
+      }
+
+      // Check Realtime API availability
+      const realtimeProvider = data.providers.find(p => p.id === 'realtime');
+      const realtimeAvailable = realtimeProvider?.available || false;
+
+      const realtimeOption = document.getElementById('asr-realtime-option');
+      const realtimeBadge = document.getElementById('realtime-unavailable-badge');
+      const realtimeInput = document.getElementById('asr-realtime');
+
+      if (!realtimeAvailable && realtimeOption && realtimeBadge && realtimeInput) {
+        realtimeOption.classList.add('disabled');
+        realtimeBadge.style.display = 'inline-block';
+        realtimeInput.disabled = true;
+      }
+
+      console.log('[ASR] GPT-4o Transcribe available:', this.gpt4oAvailable);
+      console.log('[ASR] Realtime API available:', realtimeAvailable);
+    } catch (error) {
+      console.error('[ASR] Error checking providers:', error);
+      this.gpt4oAvailable = false;
+      this.asrMetaOption.classList.add('disabled');
+      this.metaUnavailableBadge.style.display = 'inline-block';
+    }
+
+    // Setup confirm button
+    this.confirmAsrBtn.addEventListener('click', () => this.confirmASRSelection());
+  }
+
+  confirmASRSelection() {
+    const selectedASR = document.querySelector('input[name="asr"]:checked').value;
+    this.asrProvider = selectedASR;
+
+    console.log(`[ASR] Selected provider: ${this.asrProvider}`);
+
+    // Initialize Speech Recognition for Browser ASR
+    if (this.asrProvider === 'browser') {
+      this.initializeSpeechRecognition();
+    }
+
+    // Send ASR preference to server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'set_asr_provider',
+        asrProvider: this.asrProvider,
+        language: this.language
+      }));
+    }
+
+    // Hide ASR phase, show TTS phase
+    this.asrPhase.style.display = 'none';
+    this.ttsPhase.style.display = 'block';
+
+    // Setup TTS selection
+    this.setupTtsSelection();
+  }
+
+  setupTtsSelection() {
+    this.confirmTtsBtn.addEventListener('click', () => this.confirmTTSSelection());
+  }
+
+  /**
+   * Initialize Browser Web Speech API for speech recognition
+   */
+  initializeSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.error('[ASR] Speech recognition not supported in this browser');
+      const errorMsg = this.language === 'ja'
+        ? 'このブラウザは音声認識をサポートしていません。Chrome または Edge をお使いください。'
+        : 'Speech recognition is not supported in this browser. Please use Chrome or Edge.';
+      alert(errorMsg);
+      return;
+    }
+
+    this.recognition = new SpeechRecognition();
+    this.recognition.continuous = true;
+    this.recognition.interimResults = true;
+    this.recognition.lang = this.language === 'ja' ? 'ja-JP' : 'en-US';
+
+    this.recognition.onstart = () => {
+      console.log('[ASR] Speech recognition started');
+    };
+
+    this.recognition.onresult = (event) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      // Update timestamp when speech is detected
+      if (finalTranscript || interimTranscript) {
+        this.lastSpeechTimestamp = Date.now();
+      }
+
+      // Update live transcript display during active system
+      if (this.isSystemActive && (finalTranscript || interimTranscript)) {
+        const displayText = finalTranscript || interimTranscript;
+        this.liveText.textContent = displayText;
+        this.currentTranscript = displayText;
+
+        // Send final transcript to server for prediction
+        if (finalTranscript && finalTranscript.trim().length > 0) {
+          this.sendTranscript(finalTranscript.trim());
+        }
+
+        // Also predict using interim results for faster response
+        if (interimTranscript && interimTranscript.trim().length > 0) {
+          this.scheduleInterimPrediction(interimTranscript.trim());
+        }
+      }
+
+      // During setup phase (voice cloning), just update the display
+      if (!this.isSystemActive && (finalTranscript || interimTranscript)) {
+        const text = finalTranscript || interimTranscript;
+        this.transcriptText.textContent = text;
+        this.currentTranscript = text;
+      }
+    };
+
+    this.recognition.onerror = (event) => {
+      console.error('[ASR] Speech recognition error:', event.error);
+      if (event.error === 'not-allowed') {
+        const errorMsg = this.language === 'ja'
+          ? 'マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。'
+          : 'Microphone access was denied. Please check your browser settings.';
+        alert(errorMsg);
+        // Reset UI on error
+        this.resetRecordingUI();
+      }
+    };
+
+    this.recognition.onend = () => {
+      console.log('[ASR] Speech recognition ended');
+      // Restart if system is active (continuous mode)
+      if (this.isSystemActive && this.asrProvider === 'browser') {
+        try {
+          this.recognition.start();
+        } catch (e) {
+          console.log('[ASR] Could not restart recognition:', e.message);
+        }
+      }
+    };
+
+    console.log('[ASR] Speech recognition initialized for', this.recognition.lang);
+  }
+
+  /**
+   * Reset recording UI elements after error or completion
+   */
+  resetRecordingUI() {
+    this.recordingStatus.style.display = 'none';
+    this.stopRecordingBtn.style.display = 'none';
+    this.startRecordingBtn.style.display = 'block';
+    this.processingStatus.style.display = 'none';
+    if (this.countdownContainer) {
+      this.countdownContainer.style.display = 'none';
+    }
+    if (this.recordingTimer) {
+      clearInterval(this.recordingTimer);
+      this.recordingTimer = null;
+    }
+  }
+
+  confirmTTSSelection() {
+    const selectedTTS = document.querySelector('input[name="tts"]:checked').value;
+    console.log(`[TTS] Selected provider: ${selectedTTS}`);
+
+    // Send TTS preference to server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'set_tts_provider',
+        provider: selectedTTS
+      }));
+    }
+
+    // Hide TTS phase, show ngram/knowledge model phase
+    this.ttsPhase.style.display = 'none';
     this.ngramPhase.style.display = 'block';
 
-    // Initialize speech recognition and WebSocket with the selected language
-    this.initializeSpeechRecognition();
-    this.connectWebSocket();
-    this.setupEventListeners();
-    this.setupNgramPhase();
+    // Setup ngram phase (if not already done)
+    if (!this.ngramPhaseSetup) {
+      this.setupNgramPhase();
+      this.ngramPhaseSetup = true;
+    }
   }
 
   updateUILanguage(lang) {
@@ -513,6 +744,44 @@ class EchoNextApp {
         }
         break;
 
+      case 'transcript_update':
+        // Transcript from GPT-4o Transcribe or Realtime API (server-side ASR)
+        if (data.text && data.text.trim().length > 0) {
+          // Update lastSpeechTimestamp to prevent audio from being skipped as stale
+          this.lastSpeechTimestamp = Date.now();
+
+          // Accumulate transcripts instead of overwriting
+          if (this.currentTranscript) {
+            this.currentTranscript += ' ' + data.text;
+          } else {
+            this.currentTranscript = data.text;
+          }
+          // Reset interim text since this segment is now finalized
+          this.realtimeInterimText = '';
+          this.liveText.textContent = this.currentTranscript;
+          console.log('[ASR] Transcript:', data.text);
+        }
+        break;
+
+      case 'transcript_delta':
+        // Incremental transcript from Realtime API (real-time updates)
+        if (data.delta) {
+          this.lastSpeechTimestamp = Date.now();
+          // Accumulate delta to current transcript for continuous display
+          if (!this.realtimeInterimText) {
+            this.realtimeInterimText = '';
+          }
+          this.realtimeInterimText += data.delta;
+          // Show accumulated interim text
+          const displayText = (this.currentTranscript || '') + this.realtimeInterimText;
+          this.liveText.textContent = displayText;
+        }
+        break;
+
+      case 'realtime_connected':
+        console.log(`[Realtime] Connected with model: ${data.model}`);
+        break;
+
       case 'prediction':
         this.displayPrediction(data);
         break;
@@ -729,7 +998,13 @@ class EchoNextApp {
       }, 1000);
 
       // Also start speech recognition for transcript
-      this.recognition.start();
+      // Initialize if not already done (needed for voice cloning even with GPT-4o ASR)
+      if (!this.recognition) {
+        this.initializeSpeechRecognition();
+      }
+      if (this.recognition) {
+        this.recognition.start();
+      }
 
       console.log('[Recording] Started');
 
@@ -739,13 +1014,16 @@ class EchoNextApp {
         ? 'マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。'
         : 'Microphone access was denied. Please check your browser settings.';
       alert(errorMsg);
+      this.resetRecordingUI();
     }
   }
 
   stopRecording() {
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
-      this.recognition.stop();
+      if (this.recognition) {
+        this.recognition.stop();
+      }
       clearInterval(this.recordingTimer);
 
       this.recordingStatus.style.display = 'none';
@@ -770,18 +1048,13 @@ class EchoNextApp {
         try {
           const audioData = reader.result;
 
-          // Get transcript - trim whitespace
+          // Get transcript - trim whitespace (may be empty if browser recognition failed)
           const transcript = this.currentTranscript.trim();
 
           console.log('[Voice Cloning] Transcript captured:', transcript);
           console.log('[Voice Cloning] Transcript length:', transcript.length);
 
-          if (!transcript || transcript.length === 0) {
-            const errorMsg = this.language === 'ja'
-              ? '音声認識がされませんでした。もう一度録音してください。'
-              : 'Speech recognition failed. Please try recording again.';
-            throw new Error(errorMsg);
-          }
+          // Note: Empty transcript is OK - server will use GPT-4o to transcribe
 
           console.log('[Voice Cloning] Sending request to server...');
 
@@ -829,7 +1102,7 @@ class EchoNextApp {
           alert(errorMsg);
 
           // Reset UI to allow retry
-          this.startRecordingBtn.style.display = 'block';
+          this.resetRecordingUI();
           this.transcriptDisplay.style.display = 'none';
           this.currentTranscript = '';
         }
@@ -841,8 +1114,7 @@ class EchoNextApp {
         ? `音声処理に失敗しました: ${error.message}\n\nもう一度やり直してください。`
         : `Audio processing failed: ${error.message}\n\nPlease try again.`;
       alert(errorMsg);
-      this.processingStatus.style.display = 'none';
-      this.startRecordingBtn.style.display = 'block';
+      this.resetRecordingUI();
     }
   }
 
@@ -866,11 +1138,14 @@ class EchoNextApp {
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Start appropriate ASR mode
-    if (this.asrProvider === 'whisper') {
-      console.log('[System] Starting Whisper mode');
-      await this.startWhisperRecording();
+    if (this.asrProvider === 'realtime') {
+      console.log('[System] Starting Realtime API mode');
+      await this.startRealtimeRecording();
+    } else if (this.asrProvider === 'gpt4o') {
+      console.log('[System] Starting GPT-4o Transcribe mode');
+      await this.startGpt4oRecording();
     } else {
-      console.log('[System] Starting browser ASR mode');
+      console.log('[System] Starting Browser ASR mode');
       this.recognition.start();
     }
 
@@ -879,9 +1154,14 @@ class EchoNextApp {
     this.toggleSystemBtn.textContent = stopText;
     this.toggleSystemBtn.classList.remove('btn-success');
     this.toggleSystemBtn.classList.add('btn-danger');
+
+    let asrName = 'Browser ASR';
+    if (this.asrProvider === 'gpt4o') asrName = 'GPT-4o Transcribe';
+    if (this.asrProvider === 'realtime') asrName = 'Realtime API';
+
     const runningText = this.language === 'ja'
-      ? `🟢 動作中 (${this.asrProvider === 'whisper' ? 'Whisper ASR' : 'Browser ASR'})`
-      : `🟢 Running (${this.asrProvider === 'whisper' ? 'Whisper ASR' : 'Browser ASR'})`;
+      ? `🟢 動作中 (${asrName})`
+      : `🟢 Running (${asrName})`;
     this.systemStatus.textContent = runningText;
 
     console.log('[System] Started');
@@ -891,8 +1171,10 @@ class EchoNextApp {
     this.isSystemActive = false;
 
     // Stop appropriate ASR mode
-    if (this.asrProvider === 'whisper') {
-      this.stopWhisperRecording();
+    if (this.asrProvider === 'realtime') {
+      this.stopRealtimeRecording();
+    } else if (this.asrProvider === 'gpt4o') {
+      this.stopGpt4oRecording();
     } else {
       this.recognition.stop();
     }
@@ -959,20 +1241,65 @@ class EchoNextApp {
   }
 
   /**
-   * Start Whisper recording (continuous audio streaming)
+   * Start Realtime API streaming transcription
    */
-  async startWhisperRecording() {
+  async startRealtimeRecording() {
     try {
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request server to connect to Realtime API
+      this.ws.send(JSON.stringify({ type: 'start_realtime' }));
 
-      this.whisperStream = stream;
-      this.startNewWhisperChunk();
+      // Get microphone access with specific audio constraints for Realtime API
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 24000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      });
+      this.realtimeStream = stream;
 
-      console.log('[Whisper] Recording started');
+      // Create AudioContext for processing
+      this.realtimeAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 24000
+      });
+
+      const source = this.realtimeAudioContext.createMediaStreamSource(stream);
+
+      // Use ScriptProcessor for audio capture (deprecated but widely supported)
+      // Buffer size of 2048 at 24kHz = ~85ms chunks
+      const bufferSize = 2048;
+      this.realtimeProcessor = this.realtimeAudioContext.createScriptProcessor(bufferSize, 1, 1);
+
+      this.realtimeProcessor.onaudioprocess = (event) => {
+        if (!this.isSystemActive) return;
+
+        const inputData = event.inputBuffer.getChannelData(0);
+
+        // Convert Float32 to PCM16
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        // Convert to base64 and send
+        const base64Audio = this.arrayBufferToBase64(pcm16.buffer);
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'audio_realtime',
+            audioData: base64Audio
+          }));
+        }
+      };
+
+      source.connect(this.realtimeProcessor);
+      this.realtimeProcessor.connect(this.realtimeAudioContext.destination);
+
+      console.log('[Realtime] Streaming started');
 
     } catch (error) {
-      console.error('[Whisper] Recording error:', error);
+      console.error('[Realtime] Recording error:', error);
       const errorMsg = this.language === 'ja'
         ? 'マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。'
         : 'Microphone access was denied. Please check your browser settings.';
@@ -981,29 +1308,89 @@ class EchoNextApp {
   }
 
   /**
-   * Start recording a new audio chunk for Whisper
+   * Stop Realtime API streaming
    */
-  startNewWhisperChunk() {
-    if (!this.whisperStream || !this.isSystemActive) {
+  stopRealtimeRecording() {
+    if (this.realtimeProcessor) {
+      this.realtimeProcessor.disconnect();
+      this.realtimeProcessor = null;
+    }
+    if (this.realtimeAudioContext) {
+      this.realtimeAudioContext.close();
+      this.realtimeAudioContext = null;
+    }
+    if (this.realtimeStream) {
+      this.realtimeStream.getTracks().forEach(track => track.stop());
+      this.realtimeStream = null;
+    }
+
+    // Request server to disconnect from Realtime API
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'stop_realtime' }));
+    }
+
+    console.log('[Realtime] Streaming stopped');
+  }
+
+  /**
+   * Convert ArrayBuffer to base64
+   */
+  arrayBufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Start GPT-4o Transcribe recording (continuous audio streaming)
+   */
+  async startGpt4oRecording() {
+    try {
+      // Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.gpt4oStream = stream;
+
+      // Start first chunk
+      this.startNewGpt4oChunk();
+
+      console.log('[GPT-4o Transcribe] Recording started');
+
+    } catch (error) {
+      console.error('[GPT-4o Transcribe] Recording error:', error);
+      const errorMsg = this.language === 'ja'
+        ? 'マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。'
+        : 'Microphone access was denied. Please check your browser settings.';
+      alert(errorMsg);
+    }
+  }
+
+  /**
+   * Start recording a new audio chunk for GPT-4o Transcribe
+   */
+  startNewGpt4oChunk() {
+    if (!this.gpt4oStream || !this.isSystemActive) {
       return;
     }
 
-    // Setup media recorder for Whisper with timeslice
-    this.whisperMediaRecorder = new MediaRecorder(this.whisperStream, {
+    // Setup media recorder for GPT-4o Transcribe
+    this.gpt4oRecorder = new MediaRecorder(this.gpt4oStream, {
       mimeType: 'audio/webm'
     });
 
-    this.whisperAudioChunks = [];
+    this.gpt4oAudioChunks = [];
 
-    this.whisperMediaRecorder.ondataavailable = (event) => {
+    this.gpt4oRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
-        this.whisperAudioChunks.push(event.data);
+        this.gpt4oAudioChunks.push(event.data);
       }
     };
 
-    this.whisperMediaRecorder.onstop = async () => {
+    this.gpt4oRecorder.onstop = async () => {
       // Create complete WebM blob
-      const audioBlob = new Blob(this.whisperAudioChunks, { type: 'audio/webm' });
+      const audioBlob = new Blob(this.gpt4oAudioChunks, { type: 'audio/webm' });
 
       // Convert to base64 and send to server
       const reader = new FileReader();
@@ -1011,48 +1398,49 @@ class EchoNextApp {
       reader.onloadend = () => {
         const base64Audio = reader.result.split(',')[1];
 
-        // Send audio to server for Whisper transcription
+        // Send audio to server for GPT-4o Transcribe
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
-            type: 'audio',
-            audioData: base64Audio
+            type: 'audio_gpt4o',
+            audioData: base64Audio,
+            language: this.language  // Pass language for accurate transcription
           }));
-          console.log(`[Whisper] Sent audio chunk (${audioBlob.size} bytes)`);
+          console.log(`[GPT-4o Transcribe] Sent audio chunk (${audioBlob.size} bytes)`);
         }
       };
 
       // Start next chunk if system is still active
       if (this.isSystemActive) {
-        this.startNewWhisperChunk();
+        this.startNewGpt4oChunk();
       }
     };
 
-    // Record for specified interval
-    this.whisperMediaRecorder.start();
+    // Start recording
+    this.gpt4oRecorder.start();
 
     // Stop after interval to create complete WebM file
     setTimeout(() => {
-      if (this.whisperMediaRecorder && this.whisperMediaRecorder.state === 'recording') {
-        this.whisperMediaRecorder.stop();
+      if (this.gpt4oRecorder && this.gpt4oRecorder.state === 'recording') {
+        this.gpt4oRecorder.stop();
       }
-    }, this.whisperRecordingInterval);
+    }, this.gpt4oChunkInterval);
   }
 
   /**
-   * Stop Whisper recording
+   * Stop GPT-4o Transcribe recording
    */
-  stopWhisperRecording() {
-    if (this.whisperMediaRecorder && this.whisperMediaRecorder.state !== 'inactive') {
-      this.whisperMediaRecorder.stop();
+  stopGpt4oRecording() {
+    if (this.gpt4oRecorder && this.gpt4oRecorder.state !== 'inactive') {
+      this.gpt4oRecorder.stop();
     }
 
-    if (this.whisperStream) {
+    if (this.gpt4oStream) {
       // Stop all tracks to release microphone
-      this.whisperStream.getTracks().forEach(track => track.stop());
-      this.whisperStream = null;
+      this.gpt4oStream.getTracks().forEach(track => track.stop());
+      this.gpt4oStream = null;
     }
 
-    console.log('[Whisper] Recording stopped');
+    console.log('[GPT-4o Transcribe] Recording stopped');
   }
 
   /**
@@ -1092,6 +1480,6 @@ class EchoNextApp {
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const app = new EchoNextApp();
-  window.echoNextApp = app; // For debugging
+  const app = new PredictiveSpeakingApp();
+  window.predictiveSpeakingApp = app; // For debugging
 });
