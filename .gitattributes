@@ -1,0 +1,6 @@
+# 改行コード: リポジトリ内はLFで統一。シェルスクリプトはLinuxサーバで実行するため常にLF
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.onnx binary
+*.gguf binary

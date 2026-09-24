@@ -1,0 +1,22 @@
+{"id":"p01","history":"Today I want to talk about our research project.","text":"This system predicts what the user is going to say next and speaks it in their own voice"}
+{"id":"p02","history":"Let me start with some background.","text":"Traditional speech recognition systems wait until you finish talking before they start processing"}
+{"id":"p03","history":"","text":"The key feature of our approach is that we start predicting before the speaker gets stuck"}
+{"id":"p04","history":"Now let me explain the evaluation.","text":"We measured both the prediction accuracy and the latency using about a hundred recorded utterances"}
+{"id":"p05","history":"","text":"This diagram shows the flow of data from the microphone all the way to the speaker output"}
+{"id":"m01","history":"Let's go over the progress updates.","text":"The report you asked for last week should be ready by Friday afternoon"}
+{"id":"m02","history":"","text":"I think we need to take this offline and discuss it with the rest of the team"}
+{"id":"m03","history":"Any questions so far?","text":"About the budget, is it correct that the final decision will be made at next month's meeting"}
+{"id":"m04","history":"","text":"We're running a bit behind schedule so we should probably reprioritize the remaining tasks"}
+{"id":"c01","history":"","text":"I tried that new ramen place downtown last night and it was actually much better than I expected"}
+{"id":"c02","history":"How was your weekend?","text":"The weather was really nice on Saturday so we took the kids to the park for a picnic"}
+{"id":"c03","history":"","text":"I've been thinking about joining a gym next month because I really need more exercise"}
+{"id":"c04","history":"","text":"That book you lent me was so good that I finished the whole thing in one sitting"}
+{"id":"e01","history":"","text":"Before you start cooking, measure out all the ingredients and lay them out on the counter"}
+{"id":"e02","history":"Let me explain how to use it.","text":"Press and hold the power button for three seconds until the settings screen appears"}
+{"id":"e03","history":"","text":"When watering plants, wait until the surface of the soil is dry before adding more water"}
+{"id":"t01","history":"","text":"When training a machine learning model, you first split the data into training and validation sets"}
+{"id":"t02","history":"I looked into the error.","text":"According to the logs, the database connection was timing out during peak hours"}
+{"id":"t03","history":"","text":"The new version cuts memory usage in half and also starts up significantly faster"}
+{"id":"s01","history":"","text":"When I was a student I used to stop by the library every day after practice to study"}
+{"id":"s02","history":"","text":"My goal this year is to stop staying up late and switch to waking up early in the morning"}
+{"id":"s03","history":"","text":"The construction near the station is finally ending next month so my commute should get easier"}

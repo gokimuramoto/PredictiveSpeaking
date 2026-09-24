@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PredictiveSpeaking</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #21262d;
+    --text: #e6edf3; --dim: #7d8590; --accent: #58a6ff;
+    --pred: #39d2c0; --warn: #d29922; --ok: #3fb950; --err: #f85149;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); height: 100vh;
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin-right: 8px; }
+  .chip {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--dim); white-space: nowrap;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.ok b { color: var(--ok); }
+  .chip.err { border-color: var(--err); color: var(--err); }
+  main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #transcript {
+    flex: 1; overflow-y: auto; padding: 28px 8vw; font-size: 26px;
+    line-height: 1.9; letter-spacing: 0.02em;
+  }
+  #history { color: var(--dim); }
+  #stable { color: var(--text); }
+  #tail { color: var(--warn); }
+  #prediction {
+    color: var(--pred); border-bottom: 2px dotted var(--pred);
+    margin-left: 2px; opacity: 0.95;
+  }
+  #prediction.stale { opacity: 0.4; border-bottom-style: dashed; }
+  #prediction.lowconf { opacity: 0.35; }
+  #prediction.speaking { color: var(--ok); border-bottom: 2px solid var(--ok); opacity: 1; }
+  footer {
+    padding: 14px 16px 18px; border-top: 1px solid var(--border);
+    background: var(--panel); display: flex; align-items: center; gap: 18px;
+  }
+  #speakBtn {
+    flex: 1; max-width: 560px; margin: 0 auto; padding: 20px 0;
+    font-size: 18px; font-weight: 700; letter-spacing: 0.1em;
+    color: var(--bg); background: var(--pred); border: none;
+    border-radius: 14px; cursor: pointer; user-select: none;
+    transition: transform 0.05s, background 0.15s, box-shadow 0.15s;
+    touch-action: none;
+  }
+  #speakBtn:disabled { background: #2d333b; color: var(--dim); cursor: not-allowed; }
+  #speakBtn.pressed {
+    transform: scale(0.985); background: var(--accent);
+    box-shadow: 0 0 24px rgba(88,166,255,0.55);
+  }
+  #speakBtn.playing { background: var(--ok); }
+  .side { width: 180px; font-size: 12px; color: var(--dim); line-height: 1.7; }
+  .side b { color: var(--text); }
+  #connState { position: fixed; top: 10px; right: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PredictiveSpeaking</h1>
+  <span class="chip">ASR間隔 <b id="sAsr">–</b></span>
+  <span class="chip">予測 <b id="sWall">–</b></span>
+  <span class="chip">freshness <b id="sFresh">–</b></span>
+  <span class="chip" id="cMic" title="マイク入力レベル(緑=ゲートを通る音量)">マイク <b id="sMic">–</b></span>
+  <span class="chip" id="cTts">TTS <b id="sTts">–</b></span>
+  <span class="chip">確信度 <b id="sConf">–</b></span>
+  <span class="chip">介入 <b id="sFired">0</b>回</span>
+  <button class="chip" id="ctxToggle" style="cursor:pointer">話題メモ <b id="sCtx">なし</b></button>
+  <span class="chip">声 <select id="voiceSel" style="background:var(--bg); color:var(--text); border:none; font-size:11px; max-width:110px"></select></span>
+  <button class="chip" id="recVoiceBtn" style="cursor:pointer">+声を登録</button>
+  <button class="chip" id="resetBtn" style="cursor:pointer">リセット</button>
+  <span class="chip" id="connState">接続中…</span>
+</header>
+<div id="ctxPanel" style="display:none; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--panel)">
+  <textarea id="ctxText" rows="4" style="width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:13px"
+    placeholder="今日話す内容・原稿・要点・固有名詞などを貼ると、予測の文脈として使われます(逸脱が大きく減ります)"></textarea>
+  <div style="margin-top:6px; display:flex; gap:10px; align-items:center">
+    <button id="ctxApply" style="padding:5px 16px; border-radius:8px; border:1px solid var(--border); background:var(--accent); color:var(--bg); cursor:pointer; font-weight:600">適用</button>
+    <button id="ctxClear" style="padding:5px 12px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--dim); cursor:pointer">クリア</button>
+    <span id="ctxState" style="font-size:12px; color:var(--dim)"></span>
+  </div>
+</div>
+<main>
+  <div id="transcript">
+    <span id="history"></span><span id="stable"></span><span id="tail"></span><span id="prediction"></span>
+  </div>
+</main>
+<div id="recOverlay" style="display:none; position:fixed; inset:0; background:rgba(13,17,23,.92); z-index:10; padding:10vh 10vw; text-align:center">
+  <h2 style="color:var(--err); font-size:20px; margin-bottom:16px">🔴 録音中 <span id="recRemain"></span>秒 — <span id="recName"></span></h2>
+  <p style="color:var(--dim); margin-bottom:12px">次の文章を、登録したい人の声で読み上げてください:</p>
+  <p id="recText" style="font-size:22px; line-height:1.9; color:var(--text)"></p>
+</div>
+<footer>
+  <div class="side">
+    候補: <b id="cacheText">–</b><br>
+    音声 <b id="cacheAge">–</b> / TTFA <b id="cacheTtfa">–</b>
+  </div>
+  <button id="speakBtn" disabled>押している間、候補を発話 (Space)</button>
+  <div class="side" style="text-align:right">
+    <label style="color:var(--pred); font-weight:600"><input type="checkbox" id="autoToggle"> 自動発話</label><br>
+    <label><input type="checkbox" id="ttsToggle" checked> 先行合成</label><br>
+    <label><input type="checkbox" id="confToggle"> 低確信を隠す</label><br>
+    サイクル <b id="sCycles">0</b>
+  </div>
+</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null, pressed = false;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("connState").textContent = "接続済み"; $("connState").classList.remove("err"); };
+  ws.onclose = () => { $("connState").textContent = "切断 — 再接続中"; $("connState").classList.add("err"); setTimeout(connect, 1500); };
+  ws.onmessage = (ev) => render(JSON.parse(ev.data));
+}
+
+function fmt(v, unit) { return v == null ? "–" : v + unit; }
+
+function render(s) {
+  $("history").textContent = s.history_text || "";
+  $("stable").textContent = s.stable;
+  if (s.asr_error) { $("connState").textContent = "ASRエラー"; $("connState").classList.add("err"); $("connState").title = s.asr_error; }
+  $("tail").textContent = s.partial.slice(s.stable.length);
+  const pred = $("prediction");
+  if (s.speak_text) {
+    // 合成待ち/再生中は「実際に話す内容」に表示を固定(表示=音声の保証)
+    pred.textContent = " " + s.speak_text;
+    pred.className = "speaking";
+    pred.id = "prediction";
+  } else {
+    pred.textContent = s.candidate.text ? " " + s.candidate.text : "";
+    pred.className = "";
+    pred.id = "prediction";
+    pred.classList.toggle("stale", s.candidate.for_input !== s.partial);
+    pred.classList.toggle("lowconf", !!s.candidate.low_conf);
+  }
+  $("sAsr").textContent = fmt(s.stats.asr_interval_p50, "ms");
+  $("sWall").textContent = fmt(s.stats.wall_p50, "ms");
+  $("sFresh").textContent = fmt(s.stats.freshness_p50, "ms");
+  $("sConf").textContent = s.candidate.confidence.toFixed(2);
+  $("sCycles").textContent = s.stats.cycles;
+  $("sFired").textContent = s.gate_fired;
+  $("sTts").textContent = s.tts.error ? "エラー" : (s.tts.ready ? "準備済" : "–");
+  $("sCtx").textContent = s.context_len ? s.context_len + "字" : "なし";
+  // トグル表示は常にサーバ状態に追従(再起動・再接続で「見た目ONだが実際OFF」を防ぐ)
+  $("autoToggle").checked = !!s.auto_mode;
+  $("cTts").classList.toggle("ok", s.tts.ready);
+  $("cTts").classList.toggle("err", !!s.tts.error);
+  // マイク: フレームが来ていない/無音ならエラー表示(「動いてるのに聞こえていない」を可視化)
+  const mic = s.mic || {};
+  if (mic.stalled) {
+    $("sMic").textContent = mic.frames ? "停止" : "未接続";
+  } else {
+    const gate = mic.gate_rms || 350, peak = mic.peak || 0;
+    const bars = "▁▂▃▄▅█";
+    const i = Math.min(bars.length - 1, Math.round(peak / gate * 2));
+    $("sMic").textContent = `${bars[i]} ${peak}`;
+  }
+  $("cMic").classList.toggle("err", !!mic.stalled);
+  $("cMic").classList.toggle("ok", !mic.stalled && (mic.peak || 0) >= (mic.gate_rms || 350));
+  $("cacheText").textContent = (s.tts.text || "–") + (s.cache_matches ? " ✓" : "");
+  $("cacheAge").textContent = fmt(s.tts.age_ms, "ms前");
+  $("cacheTtfa").textContent = fmt(s.tts.ttfa_ms, "ms");
+  const btn = $("speakBtn");
+  btn.disabled = !s.playing && !s.pending && !s.tts.fresh && !s.candidate.text;
+  btn.classList.toggle("playing", s.playing);
+  if (s.playing) btn.textContent = `発話中 — もう一度押すと停止`;
+  else if (s.pending) btn.textContent = `合成中…まもなく発話: ${s.pending}`;
+  else btn.textContent = "候補を発話 (Space / クリック)";
+  // ボイス一覧・選択
+  const sel = $("voiceSel");
+  const want = JSON.stringify(s.voices || []);
+  if (sel.dataset.list !== want) {
+    sel.dataset.list = want;
+    sel.innerHTML = "";
+    (s.voices || []).forEach(v => {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
+    });
+  }
+  if (s.active_voice && sel.value !== s.active_voice) sel.value = s.active_voice;
+  // 録音オーバーレイ
+  const ov = $("recOverlay");
+  if (s.recording) {
+    ov.style.display = "block";
+    $("recRemain").textContent = s.recording.remaining_s;
+    $("recName").textContent = s.recording.name;
+    $("recText").textContent = s.recording.text;
+  } else {
+    ov.style.display = "none";
+  }
+  const tr = $("transcript"); tr.scrollTop = tr.scrollHeight;
+}
+
+function setPressed(v) {
+  if (pressed === v || !ws || ws.readyState !== 1) return;
+  pressed = v;
+  $("speakBtn").classList.toggle("pressed", v);
+  ws.send(JSON.stringify({ type: "button", pressed: v }));
+}
+
+const btn = $("speakBtn");
+btn.addEventListener("pointerdown", (e) => { e.preventDefault(); setPressed(true); });
+window.addEventListener("pointerup", () => setPressed(false));
+btn.addEventListener("pointerleave", () => setPressed(false));
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); setPressed(true); }
+});
+window.addEventListener("keyup", (e) => { if (e.code === "Space") setPressed(false); });
+$("ttsToggle").addEventListener("change", (e) => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "tts_enabled", value: e.target.checked }));
+});
+$("confToggle").addEventListener("change", (e) => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "hide_low_conf", value: e.target.checked }));
+});
+$("autoToggle").addEventListener("change", (e) => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "auto_mode", value: e.target.checked }));
+});
+$("resetBtn").addEventListener("click", () => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "reset" }));
+});
+$("voiceSel").addEventListener("change", (e) => {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "set_voice", voice: e.target.value }));
+});
+$("recVoiceBtn").addEventListener("click", () => {
+  const name = prompt("登録する声の名前(英数字推奨):");
+  if (name && ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "record_voice", name: name, seconds: 10 }));
+  }
+});
+$("ctxToggle").addEventListener("click", () => {
+  const p = $("ctxPanel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+});
+$("ctxApply").addEventListener("click", () => {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "context", text: $("ctxText").value }));
+    $("ctxState").textContent = "適用しました";
+    setTimeout(() => { $("ctxState").textContent = ""; }, 2000);
+  }
+});
+$("ctxClear").addEventListener("click", () => {
+  $("ctxText").value = "";
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "context", text: "" }));
+});
+// テキスト入力中はSpaceでの発話トリガーを無効化
+$("ctxText").addEventListener("keydown", (e) => e.stopPropagation());
+connect();
+</script>
+</body>
+</html>
